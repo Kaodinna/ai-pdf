@@ -1,0 +1,20 @@
+[
+  {
+    "id": "e047c98a-970a-4200-b1a1-d17cabe83931",
+    "name": "sample template",
+    "template_type": "DO",
+    "direct_link_fields": [
+      "BOOKING NO.",
+      "NUMBER OF ORIGINALS",
+      "PORT OF DISCHARGE",
+      "PORT OF LOADING"
+    ],
+    "table_fields": [
+      "GROSS WEIGHT",
+      "MEASUREMENT",
+      "DESCRIPTION OF PACKAGES AND GOODS"
+    ],
+    "special_conditions": [],
+    "created_at": "2026-06-03T10:15:46.323264"
+  }
+]
