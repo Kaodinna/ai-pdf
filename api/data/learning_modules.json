@@ -1,0 +1,154 @@
+[
+  {
+    "id": "c8ee8c66-6bc7-4dda-ba6d-0717f38bc132",
+    "title": "Getting Started with AI PDF Studio",
+    "description": "Learn the basics of uploading, splitting, and merging PDFs.",
+    "category": "Basics",
+    "duration_minutes": 5,
+    "lessons": [
+      {
+        "id": "eb7ce011-ab49-4350-8024-0c18dfee9c85",
+        "title": "Uploading your first PDF",
+        "type": "video",
+        "completed": false
+      },
+      {
+        "id": "1d708485-4301-42a3-befb-93345be336b0",
+        "title": "Splitting documents",
+        "type": "article",
+        "completed": false
+      },
+      {
+        "id": "17fd6054-c3a8-4933-b9e7-3a755dddba67",
+        "title": "Merging documents",
+        "type": "video",
+        "completed": false
+      }
+    ],
+    "created_at": "2026-06-29T20:27:55.918629"
+  },
+  {
+    "id": "dfd66233-9276-426c-8b40-42a99920bc03",
+    "title": "Template Configuration",
+    "description": "Set up extraction templates with field configs, synonyms, and data types.",
+    "category": "Templates",
+    "duration_minutes": 10,
+    "lessons": [
+      {
+        "id": "8e118a9c-34a0-40a4-8912-6c5586024fb7",
+        "title": "Creating a template",
+        "type": "video",
+        "completed": false
+      },
+      {
+        "id": "76ed2db9-000d-497e-bd04-25a8bccb9f3c",
+        "title": "Configuring field types and descriptions",
+        "type": "article",
+        "completed": false
+      },
+      {
+        "id": "b0a3572c-1a16-4f07-8c0f-7e278b023042",
+        "title": "Adding synonyms for better extraction",
+        "type": "video",
+        "completed": false
+      },
+      {
+        "id": "70213555-01c1-436c-9f44-14fde1ae8753",
+        "title": "Setting unique ID fields",
+        "type": "quiz",
+        "completed": false
+      }
+    ],
+    "created_at": "2026-06-29T20:27:55.918779"
+  },
+  {
+    "id": "bd6c78f3-17d9-4363-8ac9-c6f398e9e085",
+    "title": "Automation Rules",
+    "description": "Build IF/THEN rules that fire automatically on document events.",
+    "category": "Automation",
+    "duration_minutes": 15,
+    "lessons": [
+      {
+        "id": "c8267cd1-a18e-457e-84c5-cc0cd613a7c1",
+        "title": "Understanding trigger types",
+        "type": "article",
+        "completed": false
+      },
+      {
+        "id": "9d62238f-049a-4d68-9883-650bafe35c4c",
+        "title": "Writing your first rule with AI",
+        "type": "video",
+        "completed": false
+      },
+      {
+        "id": "8ee0f2d1-f9fb-43a5-b581-bb6188da3011",
+        "title": "Testing rules against real files",
+        "type": "article",
+        "completed": false
+      },
+      {
+        "id": "441954d1-e7a7-442b-908a-7fd6767cb608",
+        "title": "Chaining multiple actions",
+        "type": "quiz",
+        "completed": false
+      }
+    ],
+    "created_at": "2026-06-29T20:27:55.918855"
+  },
+  {
+    "id": "d1d06722-4286-4756-ae37-94b28b283ae5",
+    "title": "Workflow Configuration",
+    "description": "Design custom status workflows to match your team's process.",
+    "category": "Workflow",
+    "duration_minutes": 8,
+    "lessons": [
+      {
+        "id": "ae43bef5-83b6-4a99-87e1-2a26aab19b22",
+        "title": "Default workflow states",
+        "type": "article",
+        "completed": false
+      },
+      {
+        "id": "fc1ea0f4-a5f2-4d6a-b944-7cbe7a76014a",
+        "title": "Adding and reordering states",
+        "type": "video",
+        "completed": false
+      },
+      {
+        "id": "8e22abf6-ebc9-4212-84f0-eb2d35df7d7e",
+        "title": "Linking rules to workflow transitions",
+        "type": "article",
+        "completed": false
+      }
+    ],
+    "created_at": "2026-06-29T20:27:55.918916"
+  },
+  {
+    "id": "d8a7befd-c133-472d-bf64-773a48c06a6d",
+    "title": "Basic Library & Reference Data",
+    "description": "Create lookup tables and use them in rule conditions.",
+    "category": "Data",
+    "duration_minutes": 7,
+    "lessons": [
+      {
+        "id": "9bb43249-e4ec-4398-be38-19c825fb7295",
+        "title": "Creating a library",
+        "type": "video",
+        "completed": false
+      },
+      {
+        "id": "c5819c7f-5c9b-4fdf-9ffc-b7d4dbaf0dd1",
+        "title": "Importing data from CSV",
+        "type": "article",
+        "completed": false
+      },
+      {
+        "id": "3e495677-6116-4a34-8a7a-8d2820a95c6c",
+        "title": "Referencing library values in rules",
+        "type": "article",
+        "completed": false
+      }
+    ],
+    "created_at": "2026-06-29T20:27:55.918975"
+  }
+]

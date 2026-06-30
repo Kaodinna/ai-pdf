@@ -1,0 +1,294 @@
+[
+  {
+    "id": "e891a2b7-d03f-47c2-abb2-5284ae6722c5",
+    "filename": "7f2f92bf-7243-4928-99a2-2e817553d836_HERBALIFE_LUXEMBOURG.pdf",
+    "size_bytes": 11685,
+    "page_count": 1,
+    "template_id": "e047c98a-970a-4200-b1a1-d17cabe83931",
+    "template_name": "sample template",
+    "template_type": "DO",
+    "status": "New",
+    "uploaded_at": "2026-06-29T20:33:24.773962",
+    "extracted_at": "2026-06-29T20:34:23.812416",
+    "pages": [
+      {
+        "page_number": 1,
+        "fields": {
+          "BOOKING NO.": "JERSIN2441003",
+          "NUMBER OF ORIGINALS": "EXPRESS RELEASE",
+          "PORT OF DISCHARGE": "SINGAPORE",
+          "PORT OF LOADING": "LONG BEACH"
+        },
+        "page_width": 612.0,
+        "page_height": 792.0,
+        "table_rows": [
+          {
+            "GROSS WEIGHT": "407.000 KG",
+            "MEASUREMENT": "1.290 CM",
+            "DESCRIPTION OF PACKAGES AND GOODS": "PALLET SLAC 45 CASES OF FOOD SUPPLEMENTS HS CODE: 210690 FREIGHT PREPAID DEST CHARGES PREPAID EXPRESS RELEASE"
+          }
+        ],
+        "applied_conditions": [],
+        "text_preview": ""
+      }
+    ]
+  },
+  {
+    "id": "aec9efef-637c-4ed8-b604-246b66f95c54",
+    "filename": "7f2f92bf-7243-4928-99a2-2e817553d836_HERBALIFE_LUXEMBOURG.pdf",
+    "size_bytes": 11685,
+    "page_count": 1,
+    "template_id": "e047c98a-970a-4200-b1a1-d17cabe83931",
+    "template_name": "sample template",
+    "template_type": "DO",
+    "status": "New",
+    "uploaded_at": "2026-06-29T22:30:13.960063",
+    "extracted_at": "2026-06-29T22:31:07.981412",
+    "pages": [
+      {
+        "page_number": 1,
+        "fields": {
+          "BOOKING NO.": "JERSIN2441003",
+          "NUMBER OF ORIGINALS": "EXPRESS RELEASE",
+          "PORT OF DISCHARGE": "SINGAPORE",
+          "PORT OF LOADING": "LONG BEACH"
+        },
+        "page_width": 612.0,
+        "page_height": 792.0,
+        "table_rows": [
+          {
+            "GROSS WEIGHT": "407.000 KG",
+            "MEASUREMENT": "1.290 CM",
+            "DESCRIPTION OF PACKAGES AND GOODS": "PALLET SLAC 45 CASES OF FOOD SUPPLEMENTS HS CODE: 210690 FREIGHT PREPAID DEST CHARGES PREPAID EXPRESS RELEASE"
+          }
+        ],
+        "applied_conditions": [],
+        "text_preview": ""
+      }
+    ]
+  },
+  {
+    "id": "711843f5-3c0e-48bf-a012-25ce6b2ef881",
+    "filename": "7f2f92bf-7243-4928-99a2-2e817553d836_HERBALIFE_LUXEMBOURG.pdf",
+    "size_bytes": 11685,
+    "page_count": 1,
+    "template_id": null,
+    "template_name": "Bill of Lading",
+    "template_type": "Bill of Lading",
+    "status": "New",
+    "uploaded_at": "2026-06-30T07:35:51.073546",
+    "extracted_at": "2026-06-30T07:38:03.465108",
+    "pages": [
+      {
+        "page_number": 1,
+        "document_type": "Bill of Lading",
+        "fields": {
+          "remit_to": "CAROTRANS INTERNATIONAL, INC.\n100 WALNUT AVE., SUITE 202\nClark, NJ 07066",
+          "phone": "(732) 540-8100",
+          "fax": "(732) 540-8123",
+          "fmc_no": "016017N",
+          "page": "Page 1 of 1",
+          "shipper_exporter": "HERBALIFE LUXEMBOURG VAT# LU 19672737\n16 AVENUE DE LA GARE\nBOURBON HOUSE 2ND. FLOOR\nLUXEMBOURG LUXEMBOURG L-1610\nTRANSPORTATION DEPT TEL:",
+          "shipper_id": "1309011",
+          "shipper_phone": "310-410-9600",
+          "booking_no": "JERSIN2441003 LAX",
+          "bill_of_lading_no": "JERSIN2441003",
+          "export_references_cust_ref": "HRBL-263365",
+          "export_references_2": "5336134280",
+          "consignee": "HERBALIFE INTL SINGAPORE PTE LTD\n111 SOMERSET ROAD\n#11-39 TRIPLEONE SOMERSET\nSINGAPORE SINGAPORE 238164\nWAREHOUSE TEAM",
+          "consignee_id": "1316012",
+          "consignee_phone": "65 6330 6956",
+          "notify_party": "SAME AS CONSIGNEE",
+          "notify_party_id": "1124293",
+          "for_delivery_please_apply_to": "FREIGHTLINKS EXPRESS PTE LTD.\nUEN NO. 198100143Z\n51 PENJURU ROAD, 3RD LEVEL\nSINGAPORE 609143",
+          "for_delivery_id": "1309429",
+          "for_delivery_phone": "65 62675511",
+          "for_delivery_fax": "65 626 75577",
+          "pre_carriage_by": "HILLSIDE NJ 07205",
+          "place_of_receipt_by_pre_carrier": "LOS ANGELES",
+          "container": "DFSU2717150",
+          "file_no": "85774",
+          "seal_number": "00188386",
+          "vessel": "YM WELLNESS/041W",
+          "port_of_loading": "LONG BEACH",
+          "port_of_discharge": "SINGAPORE",
+          "number_of_originals": "EXPRESS RELEASE",
+          "aes": "X20240925022161",
+          "total_number_of_packages": "1",
+          "total_gross_weight": "897.272 LB\n407.000 KG",
+          "total_measurement": "45.556 CF\n1.290 CM",
+          "shipment_date": "10/23/2024",
+          "sail_date": "10/22/2024",
+          "carrier": "CaroTrans"
+        },
+        "table_columns": [
+          "MARKS & NOS/CONTAINER NOS.",
+          "NO. OF PKGS",
+          "DESCRIPTION OF PACKAGES AND GOODS",
+          "GROSS WEIGHT",
+          "MEASUREMENT"
+        ],
+        "table_rows": [
+          {
+            "MARKS & NOS/CONTAINER NOS.": "DOOR TO CFS\nTERMS: DPU\nDR 4763672\nSINGAPORE",
+            "NO. OF PKGS": "1",
+            "DESCRIPTION OF PACKAGES AND GOODS": "PALLET SLAC 45 CASES OF FOOD SUPPLEMENTS\nHS CODE: 210690\nFREIGHT PREPAID\nDEST CHARGES PREPAID\nEXPRESS RELEASE",
+            "GROSS WEIGHT": "407.000 KG",
+            "MEASUREMENT": "1.290 CM"
+          }
+        ],
+        "text_preview": ""
+      }
+    ]
+  },
+  {
+    "id": "c0f03dad-c8ee-47e6-a6d3-4b70e1946fd1",
+    "filename": "2603-0359.pdf",
+    "size_bytes": 571911,
+    "page_count": 5,
+    "template_id": "e6d793ae-0d57-4e94-9012-71589c76390f",
+    "template_name": "Transport Invoice",
+    "template_type": "invoice",
+    "status": "New",
+    "uploaded_at": "2026-06-30T08:53:58.350517",
+    "extracted_at": "2026-06-30T08:58:49.326011",
+    "pages": [
+      {
+        "page_number": 1,
+        "fields": {
+          "Invoice Number": "GV2603-0359",
+          "Invoice Date": "14/03/2026 00:00:00",
+          "Payment Terms": "30 DAYS",
+          "Job Reference": "M26-01418-BKK",
+          "Job Date": "10/03/2026",
+          "HBL Number": "ACSIN26020161/10",
+          "From Location": "HUB & PORT (KD)",
+          "To Location": "KAFFA (10 CHIN BEE AVENUE)",
+          "CBM": "7.920",
+          "Unit Price": "$8.00",
+          "Sub Total": "$63.36",
+          "GST Amount": "$5.70",
+          "Grand Total": "$69.06"
+        },
+        "page_width": 612.0,
+        "page_height": 792.0,
+        "table_rows": [],
+        "applied_conditions": [],
+        "text_preview": ""
+      }
+    ]
+  },
+  {
+    "id": "59996d9b-86df-4160-9e80-85731d395eb9",
+    "filename": "2603-0359.pdf",
+    "size_bytes": 571911,
+    "page_count": 5,
+    "template_id": "e6d793ae-0d57-4e94-9012-71589c76390f",
+    "template_name": "Transport Invoice",
+    "template_type": "invoice",
+    "status": "New",
+    "uploaded_at": "2026-06-30T12:09:09.201699",
+    "extracted_at": "2026-06-30T12:09:58.747773",
+    "pages": [
+      {
+        "page_number": 1,
+        "fields": {
+          "Invoice Number": "GV2603-0359",
+          "Invoice Date": "14/03/2026 00:00:00",
+          "Payment Terms": "30 DAYS",
+          "Job Reference": "M26-01418-BKK",
+          "Job Date": "10/03/2026",
+          "HBL Number": "ACSIN26020161/10",
+          "From Location": "HUB & PORT (KD)",
+          "To Location": "KAFFA (10 CHIN BEE AVENUE)",
+          "CBM": "7.920",
+          "Unit Price": "$8.00",
+          "Sub Total": "$63.36",
+          "GST Amount": "$5.70",
+          "Grand Total": "$69.06"
+        },
+        "page_width": 612.0,
+        "page_height": 792.0,
+        "table_rows": [],
+        "applied_conditions": [],
+        "text_preview": ""
+      }
+    ]
+  },
+  {
+    "id": "c1732292-c4fe-4669-a908-05e64f8706b8",
+    "filename": "2603-0359.pdf",
+    "size_bytes": 571911,
+    "page_count": 5,
+    "template_id": "e6d793ae-0d57-4e94-9012-71589c76390f",
+    "template_name": "Transport Invoice",
+    "template_type": "invoice",
+    "status": "New",
+    "uploaded_at": "2026-06-30T12:16:13.348019",
+    "extracted_at": "2026-06-30T12:16:53.132739",
+    "pages": [
+      {
+        "page_number": 1,
+        "fields": {
+          "Invoice Number": "GV2603-0359",
+          "Invoice Date": "14/03/2026 00:00:00",
+          "Payment Terms": "30 DAYS",
+          "Job Reference": "M26-01418-BKK",
+          "Job Date": "10/03/2026",
+          "HBL Number": "ACSIN26020161/10",
+          "From Location": "HUB & PORT (KD)",
+          "To Location": "KAFFA (10 CHIN BEE AVENUE)",
+          "CBM": "7.920 CBM",
+          "Unit Price": "$8.00",
+          "Sub Total": "$63.36",
+          "GST Amount": "$5.70",
+          "Grand Total": "$69.06",
+          "Description/Remarks": "TRANSPORT CHARGES - IMPORT\nF: HUB & PORT (KD)\nT: KAFFA (10 CHIN BEE AVENUE)\n(3PLTS / 1382.400KGS / 7.920CBM)\nHBL NO : ACSIN26020161/10"
+        },
+        "page_width": 612.0,
+        "page_height": 792.0,
+        "table_rows": [],
+        "applied_conditions": [],
+        "text_preview": ""
+      }
+    ]
+  },
+  {
+    "id": "67375e33-357c-4784-bae4-fdd70cc5edb0",
+    "filename": "2603-0359.pdf",
+    "size_bytes": 571911,
+    "page_count": 5,
+    "template_id": "e6d793ae-0d57-4e94-9012-71589c76390f",
+    "template_name": "Transport Invoice",
+    "template_type": "invoice",
+    "status": "New",
+    "uploaded_at": "2026-06-30T12:18:51.178074",
+    "extracted_at": "2026-06-30T12:19:34.560523",
+    "pages": [
+      {
+        "page_number": 1,
+        "fields": {
+          "Invoice Number": "GV2603-0359",
+          "Invoice Date": "14/03/2026",
+          "Payment Terms": "30 DAYS",
+          "Job Reference": "M26-01418-BKK",
+          "Job Date": "10/03/2026",
+          "HBL Number": "ACSIN26020161/10",
+          "From Location": "HUB & PORT (KD)",
+          "To Location": "KAFFA (10 CHIN BEE AVENUE)",
+          "CBM": "7.920 CBM",
+          "Unit Price": "$8.00",
+          "Sub Total": "$63.36",
+          "GST Amount": "$5.70",
+          "Grand Total": "$69.06",
+          "Description/Remarks": "TRANSPORT CHARGES - IMPORT\nF: HUB & PORT (KD)\nT: KAFFA (10 CHIN BEE AVENUE)\n(3PLTS / 1382.400KGS / 7.920CBM)\nHBL NO : ACSIN26020161/10"
+        },
+        "page_width": 612.0,
+        "page_height": 792.0,
+        "table_rows": [],
+        "applied_conditions": [],
+        "text_preview": ""
+      }
+    ]
+  }
+]

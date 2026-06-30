@@ -265,11 +265,44 @@ def _search_value_position(words: list[dict], value_text: str) -> dict | None:
     return None
 
 
+def _build_field_hints(
+    field_names: list[str],
+    field_config: dict | None,
+    field_synonyms: dict[str, list[str]] | None,
+) -> str:
+    """Build a concise per-field guidance block for extraction prompts."""
+    lines = []
+    for fname in field_names:
+        cfg = (field_config or {}).get(fname, {})
+        syns = cfg.get("synonyms", []) or (field_synonyms or {}).get(fname, [])
+        dtype = cfg.get("data_type", "")
+        desc = cfg.get("description", "")
+        restriction = cfg.get("data_type_restriction", "")
+
+        parts = [f'- "{fname}"']
+        if dtype:
+            parts.append(f"({dtype})")
+        if syns:
+            parts.append(f'[also: {", ".join(syns)}]')
+        if desc:
+            parts.append(f": {desc}")
+        line = " ".join(parts)
+        if restriction:
+            line += f"\n  Rule: {restriction}"
+        lines.append(line)
+
+    if not lines:
+        return ""
+    return "\nField guidance:\n" + "\n".join(lines) + "\n"
+
+
 def _extract_fields_with_claude(
     field_names: list[str],
     doc_type: str,
     page_image: dict | None = None,
     page_text: str = "",
+    field_synonyms: dict[str, list[str]] | None = None,
+    field_config: dict | None = None,
 ) -> dict[str, str | None]:
     """
     Fill a fixed JSON skeleton whose keys are exactly the template field names.
@@ -279,6 +312,7 @@ def _extract_fields_with_claude(
         return {f: None for f in field_names}
 
     skeleton = {f: None for f in field_names}
+    field_hints = _build_field_hints(field_names, field_config, field_synonyms)
 
     if page_image:
         content: list[dict] = [
@@ -290,13 +324,13 @@ def _extract_fields_with_claude(
 Fill in ONLY this JSON skeleton. Keep every key exactly as written. Do NOT add or remove keys.
 
 {json.dumps(skeleton, indent=2)}
-
+{field_hints}
 Extraction rules:
 - Return the raw value only — never include the label in the value
-- Accept common label synonyms and abbreviations for each field
 - Multi-line values (e.g. full addresses) should be joined with a newline character
 - Numbers with units should be returned as-is including the unit (e.g. "407.900 KG")
 - If a field genuinely does not appear on this page, leave it as null — do not guess
+- Follow any per-field Rules listed above exactly
 
 Return the filled JSON only. No markdown, no explanation.""",
             },
@@ -313,13 +347,13 @@ The text below was extracted from a PDF with spatial layout preserved using whit
 Fill in ONLY this JSON skeleton. Keep every key exactly as written. Do NOT add or remove keys.
 
 {json.dumps(skeleton, indent=2)}
-
+{field_hints}
 Extraction rules:
 - Return the raw value only — never include the label in the value
-- Accept common label synonyms and abbreviations for each field
 - Multi-line values (e.g. full addresses) should be joined with a newline character
 - Numbers with units should be returned as-is including the unit (e.g. "407.900 KG")
 - If a field genuinely does not appear on this page, leave it as null — do not guess
+- Follow any per-field Rules listed above exactly
 
 Document text:
 {page_text}
@@ -451,6 +485,120 @@ Return [] if nothing triggered. No markdown."""
     return []
 
 
+def ai_group_documents(pdf_path: Path) -> dict:
+    """
+    Analyse all pages and group them into logical documents.
+
+    Pages are related when they share a reference number, a matching
+    header/footer, or are clearly a continuation of the same document.
+    For each group the response includes:
+      - document_type   (invoices always sorted first)
+      - pages           (1-indexed list)
+      - customer        (buyer / consignee / bill-to party)
+      - agent           (freight forwarder / notify party / issuing agent)
+      - reference       (invoice / BL / AWB number, etc.)
+      - is_invoice      (true when document_type contains "invoice")
+
+    Returns:
+      { "documents": [ { ...fields above... }, ... ] }
+    """
+    try:
+        pages_meta = extract_text_per_page(pdf_path, char_limit=1)
+        total = len(pages_meta)
+
+        instruction = f"""You are an expert document analyst reviewing a multi-page PDF.
+The PDF has {total} page(s). Your job is to:
+
+1. GROUP pages that belong to the same logical document.
+   Pages are related when they share:
+   - The same reference / document number (invoice no., B/L no., AWB no., PO no.)
+   - The same header, issuer, and recipient
+   - A "Page X of Y" or "continued" marker pointing to an adjacent page
+   Treat each standalone page as its own single-page document.
+
+2. For each document group identify:
+   - document_type: one of "Commercial Invoice", "Proforma Invoice", "Tax Invoice",
+     "Bill of Lading", "Air Waybill", "Packing List", "Certificate of Origin",
+     "Delivery Order", "Customs Permit", "Insurance Certificate", "Other"
+   - customer: the BUYER / CONSIGNEE / BILL-TO party (company name).
+     For invoices this is the party being billed.
+     For shipping docs this is the consignee / importer.
+   - agent: the FREIGHT FORWARDER / NOTIFY PARTY / ISSUING AGENT (company name).
+     For invoices this is the seller / issuer.
+     For shipping docs this is the notify party or carrier agent.
+   - reference: the primary document reference number (invoice no., B/L no., etc.)
+
+3. PRIORITISE invoices — sort all invoice-type documents to the TOP of the list,
+   followed by other document types.
+
+Return ONLY a valid JSON object (no markdown, no explanation):
+{{
+  "documents": [
+    {{
+      "document_number": 1,
+      "document_type": "Commercial Invoice",
+      "pages": [1, 2],
+      "customer": "BUYER CORP LTD",
+      "agent": "SELLER PTE LTD",
+      "reference": "INV-2024-001",
+      "is_invoice": true
+    }}
+  ]
+}}
+
+Rules:
+- is_invoice must be true when document_type contains the word "Invoice"
+- customer and agent must be company/person names only — never null if detectable
+- Use null only when a field genuinely cannot be determined from the visible content
+- Every page must appear in exactly one document group"""
+
+        try:
+            page_images = render_pages_as_images(pdf_path, dpi=120)
+            use_vision = True
+        except Exception:
+            page_images = []
+            use_vision = False
+
+        if use_vision and page_images:
+            content: list[dict] = []
+            for img in page_images:
+                content.append({"type": "text", "text": f"[PAGE {img['page_number']}]"})
+                content.append(_image_block(img))
+            content.append({"type": "text", "text": instruction})
+        else:
+            page_texts = "\n".join(
+                f"Page {p['page_number']}: {p['text_preview'] or '[no text]'}"
+                for p in extract_text_per_page(pdf_path, char_limit=500)
+            )
+            content = [{
+                "type": "text",
+                "text": f"{instruction}\n\nPages:\n{page_texts}",
+            }]
+
+        client = _get_client()
+        message = client.messages.create(
+            model=MODEL,
+            max_tokens=8192,
+            thinking={"type": "adaptive"},
+            messages=[{"role": "user", "content": content}],
+        )
+        raw = next(b.text for b in message.content if b.type == "text")
+        result = _parse_json_from_response(raw)
+
+        if "documents" not in result or not isinstance(result["documents"], list):
+            raise ValueError("AI response missing 'documents' list")
+
+        # Guarantee invoices are first even if the model didn't sort correctly
+        result["documents"].sort(key=lambda d: (0 if d.get("is_invoice") else 1))
+
+        return result
+
+    except anthropic.APIError as e:
+        raise RuntimeError(f"Anthropic API error: {e}") from e
+    except json.JSONDecodeError as e:
+        raise ValueError(f"AI returned invalid JSON: {e}") from e
+
+
 def ai_detect_doc_type(pdf_path: Path, templates: list[dict]) -> dict:
     """
     Given a PDF and a list of templates, detect which template each page belongs to.
@@ -553,6 +701,9 @@ def ai_extract_template_fields(
     table_fields       = template.get("table_fields", [])
     special_conditions = template.get("special_conditions", [])
     doc_type           = template.get("template_type", template.get("name", "document"))
+    field_synonyms     = template.get("field_synonyms", {})
+    field_config       = template.get("field_config", {})
+    table_config       = template.get("table_config", {})
 
     all_pages = extract_text_per_page(pdf_path, char_limit=1)
     page_nums = (
@@ -584,6 +735,8 @@ def ai_extract_template_fields(
         fields = _extract_fields_with_claude(
             direct_link_fields, doc_type,
             page_image=page_image, page_text=page_text,
+            field_synonyms=field_synonyms,
+            field_config=field_config,
         )
 
         # ── POSITIONS: search for each extracted value in the word list ───────
@@ -603,6 +756,25 @@ def ai_extract_template_fields(
         # ── CONDITIONS: Claude evaluates rules against table rows ─────────────
         applied_conditions = _apply_conditions_with_ai(table_rows, special_conditions)
 
+        # ── LIBRARY-DERIVED: auto-fill fields from library lookup ─────────────
+        try:
+            from services.library_service import library_lookup_derived
+            for fname, fcfg in field_config.items():
+                ld = fcfg.get("library_derived") if isinstance(fcfg, dict) else None
+                if not ld or not ld.get("library_id"):
+                    continue
+                match_field = ld.get("match_field", "")
+                return_field = ld.get("return_field", "")
+                match_value = fields.get(match_field)
+                if match_value:
+                    derived = library_lookup_derived(
+                        ld["library_id"], match_field, match_value, return_field
+                    )
+                    if derived is not None:
+                        fields[fname] = derived
+        except Exception:
+            pass
+
         results.append({
             "page_number":        page_num,
             "fields":             fields,
@@ -615,3 +787,254 @@ def ai_extract_template_fields(
         })
 
     return {"pages": results}
+
+
+def ai_smart_extract(pdf_path: Path, page_numbers: list[int] | None = None) -> dict:
+    """
+    Template-less extraction: Claude infers the document type and decides which
+    fields and table columns are present, with no fixed schema to fill in.
+    """
+    all_pages = extract_text_per_page(pdf_path, char_limit=1)
+    page_nums = (
+        [p["page_number"] for p in all_pages if p["page_number"] in page_numbers]
+        if page_numbers
+        else [p["page_number"] for p in all_pages]
+    )
+
+    results = []
+    for page_num in page_nums:
+        page_image = _render_page(pdf_path, page_num)
+        page_text = "" if page_image else extract_text_with_layout(pdf_path, page_num)
+
+        prompt = """You are analyzing a business document page with no known template.
+
+Look at the document and infer:
+1. "document_type" — a short label for what kind of document this is (e.g. "Commercial Invoice", "Packing List", "Bill of Lading")
+2. "fields" — a flat object of key-value pairs for every distinct labeled field you can see (dates, IDs, names, addresses, amounts, etc). Use clear snake_case keys based on the labels shown on the document.
+3. "table_columns" — if a table is present, an array of column header names in the order they appear
+4. "table_rows" — if a table is present, an array of row objects whose keys exactly match table_columns
+
+Extraction rules:
+- Return the raw value only — never include the label in the value
+- Multi-line values should be joined with a newline character
+- Numbers with units should be returned as-is including the unit
+- If there is no table, return empty arrays for table_columns and table_rows
+- Do not guess values that are not visibly present
+
+Return ONLY a JSON object of this shape, no markdown, no explanation:
+{"document_type": "...", "fields": {...}, "table_columns": [...], "table_rows": [...]}"""
+
+        if page_image:
+            content: list[dict] = [_image_block(page_image), {"type": "text", "text": prompt}]
+        elif page_text.strip():
+            content = [{"type": "text", "text": f"{prompt}\n\nDocument text:\n{page_text}"}]
+        else:
+            results.append({
+                "page_number": page_num, "document_type": None,
+                "fields": {}, "table_columns": [], "table_rows": [],
+                "text_preview": "",
+            })
+            continue
+
+        try:
+            client = _get_client()
+            msg = client.messages.create(
+                model=MODEL,
+                max_tokens=4096,
+                thinking={"type": "adaptive"},
+                messages=[{"role": "user", "content": content}],
+            )
+            raw = next(b.text for b in msg.content if b.type == "text")
+            parsed = _parse_json_from_response(raw)
+        except Exception:
+            parsed = {}
+
+        results.append({
+            "page_number": page_num,
+            "document_type": parsed.get("document_type"),
+            "fields": parsed.get("fields", {}) or {},
+            "table_columns": parsed.get("table_columns", []) or [],
+            "table_rows": parsed.get("table_rows", []) or [],
+            "text_preview": page_text[:800] if page_text else "",
+        })
+
+    return {"pages": results}
+
+
+def ai_refine_extraction(
+    pdf_path: Path,
+    page_number: int,
+    current_fields: dict[str, str | None],
+    current_table_rows: list[dict],
+    instructions: str,
+    doc_type: str,
+    mode: str = "headers",
+) -> dict:
+    """
+    Apply natural-language correction instructions to already-extracted data.
+    mode='headers' corrects field values; mode='table' corrects table rows.
+    Returns { "fields": {...} } or { "table_rows": [...] }.
+    """
+    page_image = _render_page(pdf_path, page_number)
+    page_text = "" if page_image else extract_text_with_layout(pdf_path, page_number)
+
+    try:
+        client = _get_client()
+
+        if mode == "headers":
+            current_json = json.dumps(current_fields, indent=2)
+            if page_image:
+                content: list[dict] = [
+                    _image_block(page_image),
+                    {
+                        "type": "text",
+                        "text": f"""You are correcting and extending extracted field values from a {doc_type} document (shown above).
+
+Current extracted fields:
+{current_json}
+
+User correction instructions:
+{instructions}
+
+Rules:
+- Apply all changes described in the instructions.
+- If instructions ask to extract NEW fields not in the current list, add them to the JSON output.
+- Leave all other existing values exactly as they are.
+- Return ONLY a valid JSON object. No markdown, no explanation.""",
+                    },
+                ]
+            else:
+                content = [{
+                    "type": "text",
+                    "text": f"""You are correcting and extending extracted field values from a {doc_type} document.
+
+Document text:
+{page_text}
+
+Current extracted fields:
+{current_json}
+
+User correction instructions:
+{instructions}
+
+Rules:
+- Apply all changes described in the instructions.
+- If instructions ask to extract NEW fields not in the current list, add them to the JSON output.
+- Leave all other existing values exactly as they are.
+- Return ONLY a valid JSON object. No markdown, no explanation.""",
+                }]
+
+            msg = client.messages.create(
+                model=MODEL, max_tokens=4096,
+                thinking={"type": "adaptive"},
+                messages=[{"role": "user", "content": content}],
+            )
+            raw = next(b.text for b in msg.content if b.type == "text")
+            result = _parse_json_from_response(raw)
+            # Preserve existing fields, overlay with Claude's result (includes any new fields)
+            merged = {**current_fields, **result}
+            return {"fields": merged}
+
+        else:  # table mode
+            if not current_table_rows:
+                return {"table_rows": []}
+            columns = list(current_table_rows[0].keys())
+            current_json = json.dumps(current_table_rows, indent=2)
+
+            if page_image:
+                content = [
+                    _image_block(page_image),
+                    {
+                        "type": "text",
+                        "text": f"""You are correcting extracted table rows from a {doc_type} document (shown above).
+
+Table columns: {', '.join(columns)}
+
+Current extracted rows:
+{current_json}
+
+User correction instructions:
+{instructions}
+
+Apply ONLY the changes described in the instructions. Keep all other rows and values unchanged.
+Return ONLY a valid JSON array of rows with the same column keys. No markdown, no explanation.""",
+                    },
+                ]
+            else:
+                content = [{
+                    "type": "text",
+                    "text": f"""You are correcting extracted table rows from a {doc_type} document.
+
+Document text:
+{page_text}
+
+Table columns: {', '.join(columns)}
+
+Current extracted rows:
+{current_json}
+
+User correction instructions:
+{instructions}
+
+Apply ONLY the changes described in the instructions. Keep all other rows and values unchanged.
+Return ONLY a valid JSON array of rows with the same column keys. No markdown, no explanation.""",
+                }]
+
+            msg = client.messages.create(
+                model=MODEL, max_tokens=4096,
+                thinking={"type": "adaptive"},
+                messages=[{"role": "user", "content": content}],
+            )
+            raw = next(b.text for b in msg.content if b.type == "text")
+            m = re.search(r"\[.*\]", raw, re.DOTALL)
+            if not m:
+                return {"table_rows": current_table_rows}
+            rows = json.loads(m.group())
+            return {"table_rows": [{c: row.get(c) for c in columns} for row in rows if isinstance(row, dict)]}
+
+    except anthropic.APIError as e:
+        raise RuntimeError(f"Anthropic API error: {e}") from e
+    except json.JSONDecodeError as e:
+        raise ValueError(f"AI returned invalid JSON: {e}") from e
+
+
+def ai_generate_rule(
+    description: str,
+    trigger_type: str,
+    sample_data: dict | None = None,
+) -> dict:
+    """Generate automation rule conditions + actions from natural language."""
+    data_context = ""
+    if sample_data:
+        data_context = (
+            "\nSAMPLE EXTRACTED DATA (use exact field names from this):\n"
+            + json.dumps(sample_data, indent=2) + "\n"
+        )
+
+    prompt = (
+        "You generate automation rules for a document processing system.\n"
+        f"Trigger type: {trigger_type}\n\n"
+        "DESCRIPTION: " + description + "\n"
+        + data_context
+        + "\nAVAILABLE CONDITION OPERATORS: equals, not_equals, contains, "
+        "not_contains, is_null, is_not_null, starts_with, ends_with\n"
+        "AVAILABLE ACTION TYPES:\n"
+        '  set_status — {"type":"set_status","value":"<status name>"}\n'
+        '  set_field  — {"type":"set_field","field":"<field name>","value":"<new value>"}\n\n'
+        "Return ONLY valid JSON (no markdown):\n"
+        "{\n"
+        '  "name": "Short rule name (max 60 chars)",\n'
+        '  "description": "One sentence explaining what this rule does",\n'
+        '  "logic_operator": "AND",\n'
+        '  "conditions": [{"field":"field name","operator":"equals","value":"value"}],\n'
+        '  "actions": [{"type":"set_status","value":"Approved"}]\n'
+        "}"
+    )
+
+    client = _get_client()
+    response = client.messages.create(
+        model=MODEL, max_tokens=1000,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    raw = next(b.text for b in response.content if b.type == "text").strip()
+    return _parse_json_from_response(raw)

@@ -1,0 +1,53 @@
+{
+  "roles": [
+    {
+      "id": "role-admin",
+      "name": "Admin",
+      "description": "Full access to all features",
+      "permissions": [
+        "*"
+      ]
+    },
+    {
+      "id": "role-reviewer",
+      "name": "Reviewer",
+      "description": "Can view and approve/reject files",
+      "permissions": [
+        "files.read",
+        "files.status",
+        "templates.read"
+      ]
+    },
+    {
+      "id": "role-viewer",
+      "name": "Viewer",
+      "description": "Read-only access to files",
+      "permissions": [
+        "files.read",
+        "templates.read"
+      ]
+    }
+  ],
+  "users": [
+    {
+      "id": "5efcc661-4367-411f-8721-d13184781f34",
+      "name": "Admin User",
+      "email": "admin@example.com",
+      "role_id": "role-admin",
+      "active": true,
+      "created_at": "2026-06-29T20:27:55.940329"
+    }
+  ],
+  "api_keys": [],
+  "settings": {
+    "require_mfa": false,
+    "session_timeout_minutes": 60,
+    "max_file_size_mb": 100,
+    "allowed_file_types": [
+      "pdf"
+    ],
+    "audit_log_enabled": true,
+    "ip_whitelist_enabled": false,
+    "ip_whitelist": []
+  }
+}

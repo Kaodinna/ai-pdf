@@ -1,0 +1,86 @@
+[
+  {
+    "id": "835826e6-9150-4942-83b8-aedf4a5cdeb4",
+    "timestamp": "2026-06-30T12:19:34.565322",
+    "action": "extracted",
+    "entity_type": "file",
+    "entity_id": "67375e33-357c-4784-bae4-fdd70cc5edb0",
+    "entity_name": "Transport Invoice",
+    "user": "system",
+    "details": {
+      "template_id": "e6d793ae-0d57-4e94-9012-71589c76390f",
+      "rules_triggered": [],
+      "pages": 1
+    }
+  },
+  {
+    "id": "150e5f47-dcb1-4dd3-9da9-e90db02e113b",
+    "timestamp": "2026-06-30T12:16:53.135285",
+    "action": "extracted",
+    "entity_type": "file",
+    "entity_id": "c1732292-c4fe-4669-a908-05e64f8706b8",
+    "entity_name": "Transport Invoice",
+    "user": "system",
+    "details": {
+      "template_id": "e6d793ae-0d57-4e94-9012-71589c76390f",
+      "rules_triggered": [],
+      "pages": 1
+    }
+  },
+  {
+    "id": "8c8821cb-e837-401b-8485-6469b8a9cfff",
+    "timestamp": "2026-06-30T12:09:58.764840",
+    "action": "extracted",
+    "entity_type": "file",
+    "entity_id": "59996d9b-86df-4160-9e80-85731d395eb9",
+    "entity_name": "Transport Invoice",
+    "user": "system",
+    "details": {
+      "template_id": "e6d793ae-0d57-4e94-9012-71589c76390f",
+      "rules_triggered": [],
+      "pages": 1
+    }
+  },
+  {
+    "id": "1109af31-fca1-410e-ac41-50ba458f41cb",
+    "timestamp": "2026-06-30T08:58:49.343202",
+    "action": "extracted",
+    "entity_type": "file",
+    "entity_id": "c0f03dad-c8ee-47e6-a6d3-4b70e1946fd1",
+    "entity_name": "Transport Invoice",
+    "user": "system",
+    "details": {
+      "template_id": "e6d793ae-0d57-4e94-9012-71589c76390f",
+      "rules_triggered": [],
+      "pages": 1
+    }
+  },
+  {
+    "id": "b2ba794a-aa1f-4dc0-8ea6-0caba0056dc5",
+    "timestamp": "2026-06-30T07:38:03.470060",
+    "action": "extracted",
+    "entity_type": "file",
+    "entity_id": "711843f5-3c0e-48bf-a012-25ce6b2ef881",
+    "entity_name": "Bill of Lading",
+    "user": "system",
+    "details": {
+      "mode": "template_less",
+      "document_type": "Bill of Lading",
+      "pages": 1
+    }
+  },
+  {
+    "id": "63c31366-a2f4-4abd-9fb7-6e6238113881",
+    "timestamp": "2026-06-30T07:36:21.572941",
+    "action": "extracted",
+    "entity_type": "file",
+    "entity_id": "711843f5-3c0e-48bf-a012-25ce6b2ef881",
+    "entity_name": "sample template",
+    "user": "system",
+    "details": {
+      "template_id": "e047c98a-970a-4200-b1a1-d17cabe83931",
+      "rules_triggered": [],
+      "pages": 1
+    }
+  }
+]

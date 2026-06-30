@@ -9,8 +9,20 @@ import MergePanel from "@/components/MergePanel";
 import AICommandBar from "@/components/AICommandBar";
 import TemplatesPanel from "@/components/TemplatesPanel";
 import ShippingPanel from "@/components/ShippingPanel";
+import DocumentGroupPanel from "@/components/DocumentGroupPanel";
+import FileDashboard from "@/components/FileDashboard";
+import WorkflowConfig from "@/components/WorkflowConfig";
+import RuleDashboard from "@/components/RuleDashboard";
+import LibraryDashboard from "@/components/LibraryDashboard";
+import SecurityConfiguration from "@/components/SecurityConfig";
+import ExportPanel from "@/components/ExportPanel";
+import AuditLog from "@/components/AuditLog";
+import AnalyticsDashboard from "@/components/AnalyticsDashboard";
+import DuplicatesPanel from "@/components/DuplicatesPanel";
+import NotificationBell from "@/components/NotificationBell";
+import ReconciliationPanel from "@/components/ReconciliationPanel";
 
-type Tab = "split" | "merge" | "ai" | "templates" | "shipping";
+type Tab = "split" | "merge" | "ai" | "templates" | "shipping" | "documents" | "files" | "workflow" | "rules" | "library" | "security" | "export" | "audit" | "analytics" | "duplicates" | "reconciliation";
 
 function formatBytes(b: number) {
   if (b < 1024) return `${b} B`;
@@ -23,7 +35,7 @@ export default function Home() {
   const [uploadResult, setUploadResult] = useState<UploadResult | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>("split");
+  const [tab, setTab] = useState<Tab>("files");
 
   const handleFile = async (files: File[]) => {
     const f = files[0];
@@ -43,11 +55,22 @@ export default function Home() {
   };
 
   const TABS: { key: Tab; label: string }[] = [
+    { key: "files", label: "Files" },
+    { key: "templates", label: "Templates" },
+    { key: "workflow", label: "Workflow" },
+    { key: "rules", label: "Rules" },
+    { key: "library", label: "Library" },
+    { key: "security", label: "Security" },
+    { key: "export", label: "Export" },
+    { key: "audit", label: "Audit Log" },
+    { key: "analytics", label: "Analytics" },
+    { key: "duplicates", label: "Duplicates" },
+    { key: "reconciliation", label: "Reconcile" },
     { key: "split", label: "Split" },
     { key: "merge", label: "Merge" },
     { key: "ai", label: "AI Commands" },
-    { key: "templates", label: "Templates" },
     { key: "shipping", label: "Shipping Docs" },
+    { key: "documents", label: "Doc Groups" },
   ];
 
   return (
@@ -60,10 +83,11 @@ export default function Home() {
                 d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
           </div>
-          <div>
+          <div className="flex-1">
             <h1 className="text-lg font-bold text-gray-900">AI PDF Studio</h1>
             <p className="text-xs text-gray-500">Split, merge, and extract with AI</p>
           </div>
+          <NotificationBell />
         </div>
       </header>
 
@@ -125,6 +149,16 @@ export default function Home() {
           </div>
 
           <div className="p-6">
+            {tab === "files" && <FileDashboard />}
+            {tab === "workflow" && <WorkflowConfig />}
+            {tab === "rules" && <RuleDashboard />}
+            {tab === "library" && <LibraryDashboard />}
+            {tab === "security" && <SecurityConfiguration />}
+            {tab === "export" && <ExportPanel />}
+            {tab === "audit" && <AuditLog />}
+            {tab === "analytics" && <AnalyticsDashboard />}
+            {tab === "duplicates" && <DuplicatesPanel />}
+            {tab === "reconciliation" && <ReconciliationPanel />}
             {tab === "split" && (
               uploadResult && file ? (
                 <SplitPanel uploadResult={uploadResult} file={file} />
@@ -147,6 +181,13 @@ export default function Home() {
             )}
             {tab === "templates" && <TemplatesPanel uploadResult={uploadResult} />}
             {tab === "shipping" && <ShippingPanel />}
+            {tab === "documents" && (
+              uploadResult ? (
+                <DocumentGroupPanel uploadResult={uploadResult} />
+              ) : (
+                <p className="text-gray-400 text-sm italic">Upload a PDF above to analyse document groups.</p>
+              )
+            )}
           </div>
         </div>
       </main>

@@ -1,0 +1,27 @@
+[
+  {
+    "id": "state-new",
+    "name": "New",
+    "order": 0
+  },
+  {
+    "id": "state-validation",
+    "name": "Validation",
+    "order": 1
+  },
+  {
+    "id": "state-pre-approved",
+    "name": "Pre-Approved",
+    "order": 2
+  },
+  {
+    "id": "state-approved",
+    "name": "Approved",
+    "order": 3
+  },
+  {
+    "id": "state-rejected",
+    "name": "Rejected",
+    "order": 4
+  }
+]

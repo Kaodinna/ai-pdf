@@ -9,15 +9,29 @@ interface Props {
   uploading?: boolean;
 }
 
+const ACCEPTED_EXTENSIONS = [".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp", ".docx", ".doc", ".xlsx", ".xls"];
+
 export default function FileUploadZone({ onFiles, multiple = true, uploading = false }: Props) {
   const onDrop = useCallback((accepted: File[]) => {
-    const pdfs = accepted.filter((f) => f.type === "application/pdf" || f.name.endsWith(".pdf"));
-    if (pdfs.length) onFiles(pdfs);
+    const valid = accepted.filter((f) =>
+      ACCEPTED_EXTENSIONS.some((ext) => f.name.toLowerCase().endsWith(ext))
+    );
+    if (valid.length) onFiles(valid);
   }, [onFiles]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: { "application/pdf": [".pdf"] },
+    accept: {
+      "application/pdf": [".pdf"],
+      "image/png": [".png"],
+      "image/jpeg": [".jpg", ".jpeg"],
+      "image/tiff": [".tiff", ".tif"],
+      "image/bmp": [".bmp"],
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
+      "application/msword": [".doc"],
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
+      "application/vnd.ms-excel": [".xls"],
+    },
     multiple,
     disabled: uploading,
   });
@@ -38,11 +52,11 @@ export default function FileUploadZone({ onFiles, multiple = true, uploading = f
         {uploading ? (
           <p className="text-gray-500">Uploading...</p>
         ) : isDragActive ? (
-          <p className="text-blue-600 font-medium">Drop your PDF{multiple ? "s" : ""} here</p>
+          <p className="text-blue-600 font-medium">Drop your file{multiple ? "s" : ""} here</p>
         ) : (
           <>
-            <p className="text-gray-600 font-medium">Drag & drop PDF{multiple ? "s" : ""} here, or click to select</p>
-            <p className="text-sm text-gray-400">Only .pdf files are accepted</p>
+            <p className="text-gray-600 font-medium">Drag & drop here, or click to select</p>
+            <p className="text-sm text-gray-400">PDF, Word, Excel, PNG, JPG, TIFF</p>
           </>
         )}
       </div>

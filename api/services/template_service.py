@@ -6,6 +6,22 @@ from pathlib import Path
 TEMPLATES_FILE = Path(__file__).parent.parent / "data" / "templates.json"
 TEMPLATES_FILE.parent.mkdir(parents=True, exist_ok=True)
 
+DATA_TYPES = ("Text", "Date", "Number", "Currency", "Boolean")
+
+
+def _empty_field_entry() -> dict:
+    return {
+        "description": "",
+        "required": False,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": None,   # {library_id, match_field, return_field} | None
+        "doc_type_priority": None, # str | None — sub-type this field belongs to
+        "display_doc_audit": True,
+        "add_separator_below": False,
+    }
+
 
 def _load() -> list[dict]:
     if not TEMPLATES_FILE.exists():
@@ -31,7 +47,30 @@ def create_template(
     direct_link_fields: list[str],
     table_fields: list[str],
     special_conditions: list[str],
+    field_synonyms: dict | None = None,
+    field_config: dict | None = None,
+    table_config: dict | None = None,
+    unique_id_fields: list[str] | None = None,
+    secondary_id_fields: list[str] | None = None,
+    reference_id_fields: list[str] | None = None,
+    editable_in_file: bool = True,
 ) -> dict:
+    fc: dict = {}
+    for fname in direct_link_fields:
+        entry = dict(_empty_field_entry())
+        if field_config and fname in field_config:
+            entry.update(field_config[fname])
+        if not entry["synonyms"] and field_synonyms and fname in field_synonyms:
+            entry["synonyms"] = field_synonyms[fname]
+        fc[fname] = entry
+
+    tc: dict = {}
+    for fname in table_fields:
+        entry = dict(_empty_field_entry())
+        if table_config and fname in table_config:
+            entry.update(table_config[fname])
+        tc[fname] = entry
+
     template = {
         "id": str(uuid.uuid4()),
         "name": name,
@@ -39,12 +78,42 @@ def create_template(
         "direct_link_fields": direct_link_fields,
         "table_fields": table_fields,
         "special_conditions": special_conditions,
+        "field_synonyms": field_synonyms or {},
+        "field_config": fc,
+        "table_config": tc,
+        "unique_id_fields": unique_id_fields or [],
+        "secondary_id_fields": secondary_id_fields or [],
+        "reference_id_fields": reference_id_fields or [],
+        "editable_in_file": editable_in_file,
+        "comments": [],
         "created_at": datetime.utcnow().isoformat(),
     }
     templates = _load()
     templates.append(template)
     _save(templates)
     return template
+
+
+def update_template(template_id: str, updates: dict) -> dict | None:
+    templates = _load()
+    for i, t in enumerate(templates):
+        if t["id"] == template_id:
+            # Merge field_config / table_config at the per-field level so existing
+            # fields not in the update payload are preserved.
+            if "field_config" in updates and isinstance(updates["field_config"], dict):
+                merged_fc = dict(t.get("field_config", {}))
+                for fname, cfg in updates["field_config"].items():
+                    merged_fc[fname] = {**_empty_field_entry(), **merged_fc.get(fname, {}), **cfg}
+                updates = {**updates, "field_config": merged_fc}
+            if "table_config" in updates and isinstance(updates["table_config"], dict):
+                merged_tc = dict(t.get("table_config", {}))
+                for fname, cfg in updates["table_config"].items():
+                    merged_tc[fname] = {**_empty_field_entry(), **merged_tc.get(fname, {}), **cfg}
+                updates = {**updates, "table_config": merged_tc}
+            templates[i] = {**t, **updates}
+            _save(templates)
+            return templates[i]
+    return None
 
 
 def delete_template(template_id: str) -> bool:
@@ -54,3 +123,37 @@ def delete_template(template_id: str) -> bool:
         return False
     _save(new_list)
     return True
+
+
+def copy_field_config_from(target_id: str, source_id: str) -> dict | None:
+    source = get_template(source_id)
+    if not source:
+        return None
+    updates = {
+        "field_config": source.get("field_config", {}),
+        "table_config": source.get("table_config", {}),
+    }
+    return update_template(target_id, updates)
+
+
+def add_comment(template_id: str, user: str, text: str) -> dict | None:
+    templates = _load()
+    for i, t in enumerate(templates):
+        if t["id"] == template_id:
+            comment = {
+                "id": str(uuid.uuid4()),
+                "user": user,
+                "text": text,
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+            comments = list(t.get("comments", []))
+            comments.insert(0, comment)
+            templates[i] = {**t, "comments": comments}
+            _save(templates)
+            return comment
+    return None
+
+
+def list_comments(template_id: str) -> list[dict]:
+    t = get_template(template_id)
+    return t.get("comments", []) if t else []

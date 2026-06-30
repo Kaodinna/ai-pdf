@@ -1,20 +1,960 @@
 [
   {
-    "id": "e047c98a-970a-4200-b1a1-d17cabe83931",
-    "name": "sample template",
-    "template_type": "DO",
+    "id": "e6d793ae-0d57-4e94-9012-71589c76390f",
+    "name": "Transport Invoice",
+    "template_type": "invoice",
     "direct_link_fields": [
-      "BOOKING NO.",
-      "NUMBER OF ORIGINALS",
-      "PORT OF DISCHARGE",
-      "PORT OF LOADING"
+      "Invoice Number",
+      "Invoice Date",
+      "Payment Terms",
+      "Job Reference",
+      "Job Date",
+      "HBL Number",
+      "From Location",
+      "To Location",
+      "CBM",
+      "Unit Price",
+      "Sub Total",
+      "GST Amount",
+      "Grand Total",
+      "Description/Remarks"
     ],
-    "table_fields": [
-      "GROSS WEIGHT",
-      "MEASUREMENT",
-      "DESCRIPTION OF PACKAGES AND GOODS"
-    ],
+    "table_fields": [],
     "special_conditions": [],
-    "created_at": "2026-06-03T10:15:46.323264"
+    "field_synonyms": {},
+    "field_config": {
+      "Invoice Number": {
+        "description": "",
+        "required": true,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Invoice Date": {
+        "description": "",
+        "required": true,
+        "data_type": "Date",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Payment Terms": {
+        "description": "",
+        "required": false,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Job Reference": {
+        "description": "",
+        "required": false,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Job Date": {
+        "description": "",
+        "required": false,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "HBL Number": {
+        "description": "",
+        "required": true,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "From Location": {
+        "description": "",
+        "required": false,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "To Location": {
+        "description": "",
+        "required": false,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "CBM": {
+        "description": "",
+        "required": false,
+        "data_type": "Number",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Unit Price": {
+        "description": "",
+        "required": false,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Sub Total": {
+        "description": "",
+        "required": false,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "GST Amount": {
+        "description": "",
+        "required": false,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Grand Total": {
+        "description": "",
+        "required": true,
+        "data_type": "Currency",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "description/remarks": {
+        "description": "",
+        "required": false,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Description/Remarks": {
+        "description": "",
+        "required": false,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      }
+    },
+    "table_config": {},
+    "unique_id_fields": [
+      "Invoice Number"
+    ],
+    "secondary_id_fields": [],
+    "reference_id_fields": [
+      "Job Reference",
+      "HBL Number"
+    ],
+    "editable_in_file": true,
+    "comments": [],
+    "created_at": "2026-06-30T08:33:53.944010"
+  },
+  {
+    "id": "0c868851-b59b-4c8d-a596-0a63afa6c69a",
+    "name": "Cargo Delivery Instruction",
+    "template_type": "delivery_instruction",
+    "direct_link_fields": [
+      "Job Number",
+      "Date",
+      "HBL Number",
+      "Booked By",
+      "Vessel Name",
+      "Voyage Number",
+      "Shipping Line",
+      "ETA Date",
+      "Port of Loading",
+      "Port of Destination",
+      "Weight KG",
+      "Volume CBM",
+      "Number of Packages",
+      "Container Number",
+      "Consignee",
+      "Cargo Description",
+      "HS Code",
+      "Collect From",
+      "Deliver To",
+      "Transport Date"
+    ],
+    "table_fields": [],
+    "special_conditions": [],
+    "field_synonyms": {},
+    "field_config": {
+      "Job Number": {
+        "description": "",
+        "required": true,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Date": {
+        "description": "",
+        "required": true,
+        "data_type": "Date",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "HBL Number": {
+        "description": "",
+        "required": true,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Booked By": {
+        "description": "",
+        "required": false,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Vessel Name": {
+        "description": "",
+        "required": false,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Voyage Number": {
+        "description": "",
+        "required": false,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Shipping Line": {
+        "description": "",
+        "required": false,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "ETA Date": {
+        "description": "",
+        "required": false,
+        "data_type": "Date",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Port of Loading": {
+        "description": "",
+        "required": false,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Port of Destination": {
+        "description": "",
+        "required": false,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Weight KG": {
+        "description": "",
+        "required": false,
+        "data_type": "Number",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Volume CBM": {
+        "description": "",
+        "required": false,
+        "data_type": "Number",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Number of Packages": {
+        "description": "",
+        "required": false,
+        "data_type": "Number",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Container Number": {
+        "description": "",
+        "required": false,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Consignee": {
+        "description": "",
+        "required": true,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Cargo Description": {
+        "description": "",
+        "required": false,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "HS Code": {
+        "description": "",
+        "required": false,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Collect From": {
+        "description": "",
+        "required": false,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Deliver To": {
+        "description": "",
+        "required": false,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Transport Date": {
+        "description": "",
+        "required": false,
+        "data_type": "Date",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      }
+    },
+    "table_config": {},
+    "unique_id_fields": [
+      "HBL Number"
+    ],
+    "secondary_id_fields": [],
+    "reference_id_fields": [
+      "Job Number",
+      "Container Number"
+    ],
+    "editable_in_file": true,
+    "comments": [],
+    "created_at": "2026-06-30T08:34:33.154866"
+  },
+  {
+    "id": "97b45d6b-9acd-49a3-8e03-0b6bd1b0cefa",
+    "name": "Delivery Order",
+    "template_type": "delivery_order",
+    "direct_link_fields": [
+      "HBL Number",
+      "Job Number",
+      "Vessel Name",
+      "Voyage Number",
+      "ETD",
+      "ETA",
+      "Number of Pallets",
+      "Cargo Description",
+      "Consignee"
+    ],
+    "table_fields": [],
+    "special_conditions": [],
+    "field_synonyms": {},
+    "field_config": {
+      "HBL Number": {
+        "description": "",
+        "required": true,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Job Number": {
+        "description": "",
+        "required": true,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Vessel Name": {
+        "description": "",
+        "required": false,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Voyage Number": {
+        "description": "",
+        "required": false,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "ETD": {
+        "description": "",
+        "required": false,
+        "data_type": "Date",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "ETA": {
+        "description": "",
+        "required": false,
+        "data_type": "Date",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Number of Pallets": {
+        "description": "",
+        "required": false,
+        "data_type": "Number",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Cargo Description": {
+        "description": "",
+        "required": false,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Consignee": {
+        "description": "",
+        "required": true,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      }
+    },
+    "table_config": {},
+    "unique_id_fields": [
+      "HBL Number"
+    ],
+    "secondary_id_fields": [],
+    "reference_id_fields": [
+      "Job Number"
+    ],
+    "editable_in_file": true,
+    "comments": [],
+    "created_at": "2026-06-30T08:35:01.257987"
+  },
+  {
+    "id": "2d00424b-1ff7-4759-972d-77f210723205",
+    "name": "Delivery Note",
+    "template_type": "delivery_note",
+    "direct_link_fields": [
+      "DN Number",
+      "Date",
+      "Transporter",
+      "Vehicle Number",
+      "HBL Number",
+      "Container Number",
+      "Job Reference",
+      "Number of Pallets",
+      "Cargo Description",
+      "Total Packages"
+    ],
+    "table_fields": [],
+    "special_conditions": [],
+    "field_synonyms": {},
+    "field_config": {
+      "DN Number": {
+        "description": "",
+        "required": true,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Date": {
+        "description": "",
+        "required": true,
+        "data_type": "Date",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Transporter": {
+        "description": "",
+        "required": false,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Vehicle Number": {
+        "description": "",
+        "required": false,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "HBL Number": {
+        "description": "",
+        "required": true,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Container Number": {
+        "description": "",
+        "required": false,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Job Reference": {
+        "description": "",
+        "required": false,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Number of Pallets": {
+        "description": "",
+        "required": false,
+        "data_type": "Number",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Cargo Description": {
+        "description": "",
+        "required": false,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Total Packages": {
+        "description": "",
+        "required": false,
+        "data_type": "Number",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      }
+    },
+    "table_config": {},
+    "unique_id_fields": [
+      "DN Number"
+    ],
+    "secondary_id_fields": [],
+    "reference_id_fields": [
+      "Job Reference",
+      "HBL Number",
+      "Container Number"
+    ],
+    "editable_in_file": true,
+    "comments": [],
+    "created_at": "2026-06-30T08:35:55.827886"
+  },
+  {
+    "id": "f64ef520-b510-4aab-9d61-809b478653fd",
+    "name": "Cargo Clearance Permit",
+    "template_type": "permit",
+    "direct_link_fields": [
+      "Permit Number",
+      "Message Type",
+      "Declaration Type",
+      "Importer",
+      "Validity Period Start",
+      "Validity Period End",
+      "Total Gross Weight",
+      "Total Packages",
+      "Total GST Amount",
+      "Total Amount Payable",
+      "Port of Loading",
+      "Arrival Date",
+      "Inward Carrier Agent",
+      "Place of Release",
+      "Licence Number",
+      "Unique Reference"
+    ],
+    "table_fields": [],
+    "special_conditions": [],
+    "field_synonyms": {},
+    "field_config": {
+      "Permit Number": {
+        "description": "",
+        "required": true,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Message Type": {
+        "description": "",
+        "required": false,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Declaration Type": {
+        "description": "",
+        "required": false,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Importer": {
+        "description": "",
+        "required": true,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Validity Period Start": {
+        "description": "",
+        "required": false,
+        "data_type": "Date",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Validity Period End": {
+        "description": "",
+        "required": false,
+        "data_type": "Date",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Total Gross Weight": {
+        "description": "",
+        "required": false,
+        "data_type": "Number",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Total Packages": {
+        "description": "",
+        "required": false,
+        "data_type": "Number",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Total GST Amount": {
+        "description": "",
+        "required": true,
+        "data_type": "Currency",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Total Amount Payable": {
+        "description": "",
+        "required": true,
+        "data_type": "Currency",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Port of Loading": {
+        "description": "",
+        "required": false,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Arrival Date": {
+        "description": "",
+        "required": false,
+        "data_type": "Date",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Inward Carrier Agent": {
+        "description": "",
+        "required": false,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Place of Release": {
+        "description": "",
+        "required": false,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Licence Number": {
+        "description": "",
+        "required": false,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      },
+      "Unique Reference": {
+        "description": "",
+        "required": false,
+        "data_type": "Text",
+        "data_type_restriction": "",
+        "synonyms": [],
+        "library_derived": null,
+        "doc_type_priority": null,
+        "display_doc_audit": true,
+        "add_separator_below": false
+      }
+    },
+    "table_config": {},
+    "unique_id_fields": [
+      "Permit Number"
+    ],
+    "secondary_id_fields": [],
+    "reference_id_fields": [
+      "Unique Reference"
+    ],
+    "editable_in_file": true,
+    "comments": [],
+    "created_at": "2026-06-30T08:36:29.916144"
   }
 ]
