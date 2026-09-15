@@ -15,7 +15,7 @@ from .pdf_service import (
 )
 from .storage_service import storage
 
-MODEL = "claude-opus-4-8"
+MODEL = "claude-sonnet-5"
 
 # Pages per Claude call — keep batches small so JSON stays valid and token limits are respected
 BATCH_SIZE = 4

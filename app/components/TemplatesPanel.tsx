@@ -13,7 +13,10 @@ import {
   copyTemplateFrom,
   addTemplateComment,
   getLibraries,
+  uploadPdf,
 } from "@/lib/api";
+import { PdfPageViewer } from "@/components/PdfPageViewer";
+import FileUploadZone from "@/components/FileUploadZone";
 import type {
   Template,
   FieldConfig,
@@ -23,139 +26,13 @@ import type {
   DetectedPage,
   ExtractionResult,
   ExtractedPage,
-  FieldPosition,
   DocumentGroup,
 } from "@/lib/api";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
-let _pdfjs: typeof import("pdfjs-dist") | null = null;
-const _pdfDocCache = new Map<string, import("pdfjs-dist").PDFDocumentProxy>();
 const _docGroupCache = new Map<string, DocumentGroup[]>();
 
 function isInvoiceType(templateType: string) {
   return templateType.toLowerCase().includes("invoice");
-}
-
-async function getPdfJs() {
-  if (!_pdfjs) {
-    _pdfjs = await import("pdfjs-dist");
-    _pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${_pdfjs.version}/build/pdf.worker.min.mjs`;
-  }
-  return _pdfjs;
-}
-
-async function getPdfDoc(fileId: string) {
-  if (_pdfDocCache.has(fileId)) return _pdfDocCache.get(fileId)!;
-  const lib = await getPdfJs();
-  const doc = await lib.getDocument({ url: `${API_BASE}/preview/${fileId}` }).promise;
-  _pdfDocCache.set(fileId, doc);
-  return doc;
-}
-
-// ─── PDF page viewer with highlight overlay ────────────────────────────────
-
-function PdfPageViewer({
-  fileId,
-  pageNumber,
-  activeField,
-  fieldPositions,
-  pageWidth,
-  pageHeight,
-}: {
-  fileId: string;
-  pageNumber: number;
-  activeField: string | null;
-  fieldPositions: Record<string, FieldPosition>;
-  pageWidth: number;
-  pageHeight: number;
-}) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const highlightRef = useRef<HTMLDivElement>(null);
-  const [rendered, setRendered] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!fileId) return;
-    let cancelled = false;
-    setRendered(false);
-    setLoadError(null);
-
-    const render = async () => {
-      try {
-        if (cancelled) return;
-        const pdf = await getPdfDoc(fileId);
-        if (cancelled) return;
-        const page = await pdf.getPage(pageNumber);
-        if (cancelled) return;
-        const container = containerRef.current;
-        const canvas = canvasRef.current;
-        if (!container || !canvas) return;
-        const containerW = container.clientWidth || 400;
-        const baseVp = page.getViewport({ scale: 1 });
-        const scale = containerW / baseVp.width;
-        const viewport = page.getViewport({ scale });
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) { setLoadError("Canvas 2D context unavailable"); return; }
-        await page.render({ canvasContext: ctx, viewport, canvas }).promise;
-        if (!cancelled) setRendered(true);
-      } catch (err) {
-        if (!cancelled) setLoadError(err instanceof Error ? err.message : String(err));
-      }
-    };
-
-    render();
-    return () => { cancelled = true; };
-  }, [fileId, pageNumber]);
-
-  const rawHighlight = activeField ? fieldPositions[activeField] : null;
-  const highlight =
-    rawHighlight && rawHighlight.x1 > rawHighlight.x0 && rawHighlight.y1 > rawHighlight.y0
-      ? rawHighlight
-      : null;
-
-  useEffect(() => {
-    if (highlight && highlightRef.current) {
-      highlightRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
-    }
-  }, [highlight]);
-
-  return (
-    <div ref={containerRef} className="relative w-full bg-gray-100 min-h-[200px]">
-      <canvas ref={canvasRef} className="w-full block" />
-      {!rendered && !loadError && (
-        <div className="absolute inset-0 flex items-center justify-center text-xs text-gray-400">
-          Loading page…
-        </div>
-      )}
-      {loadError && (
-        <div className="absolute inset-0 flex items-center justify-center p-4">
-          <p className="text-xs text-red-500 text-center bg-white rounded p-2 shadow-sm">{loadError}</p>
-        </div>
-      )}
-      {rendered && pageWidth > 0 && (
-        <div
-          ref={highlightRef}
-          className="absolute pointer-events-none"
-          style={{
-            left: highlight ? `calc(${(highlight.x0 / pageWidth) * 100}% - 3px)` : 0,
-            top: highlight ? `calc(${(highlight.y0 / pageHeight) * 100}% - 3px)` : 0,
-            width: highlight ? `calc(${((highlight.x1 - highlight.x0) / pageWidth) * 100}% + 6px)` : 0,
-            height: highlight ? `calc(${((highlight.y1 - highlight.y0) / pageHeight) * 100}% + 6px)` : 0,
-            backgroundColor: "rgba(255, 200, 0, 0.55)",
-            border: highlight ? "3px solid #e67e00" : "none",
-            borderRadius: "3px",
-            boxShadow: highlight ? "0 0 0 2px rgba(230, 126, 0, 0.35), 0 2px 8px rgba(0,0,0,0.25)" : "none",
-            opacity: highlight ? 1 : 0,
-            transition: "opacity 0.15s ease",
-          }}
-        />
-      )}
-    </div>
-  );
 }
 
 // ─── Simple tag input (for table fields / conditions) ─────────────────────
@@ -378,16 +255,13 @@ function FieldsWithSynonyms({
 
 // ─── Template create form ─────────────────────────────────────────────────
 
-interface Props {
-  uploadResult?: UploadResult | null;
-}
-
 type View = "list" | "create" | "review" | "configure";
 
 function CreateForm({ onSaved, onCancel }: { onSaved: (t: Template) => void; onCancel: () => void }) {
   const [name, setName] = useState("");
   const [templateType, setTemplateType] = useState("");
   const [fieldEntries, setFieldEntries] = useState<FieldEntry[]>([]);
+  const [uniqueIdField, setUniqueIdField] = useState("");
   const [tableFields, setTableFields] = useState<string[]>([]);
   const [specialConditions, setSpecialConditions] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
@@ -406,6 +280,7 @@ function CreateForm({ onSaved, onCancel }: { onSaved: (t: Template) => void; onC
       ),
       table_fields: tableFields,
       special_conditions: specialConditions,
+      unique_id_fields: uniqueIdField ? [uniqueIdField] : [],
     });
     setSaving(false);
     if (res.success && res.data) { onSaved(res.data); }
@@ -444,13 +319,26 @@ function CreateForm({ onSaved, onCancel }: { onSaved: (t: Template) => void; onC
       </div>
 
       <div className="border rounded-xl p-4 bg-gray-50">
-        <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">3 — Table Columns</p>
+        <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">3 — Unique ID Field</p>
+        <p className="text-xs text-gray-500 mb-3">
+          Which field uniquely identifies one document (e.g. Invoice Number, Bill of Lading No)? Used to detect duplicate uploads on the Duplicates screen — leave blank to skip duplicate detection for this template.
+        </p>
+        <select value={uniqueIdField} onChange={(e) => setUniqueIdField(e.target.value)}
+          disabled={fieldEntries.length === 0}
+          className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 ring-blue-300 outline-none bg-white disabled:opacity-50">
+          <option value="">— None (no duplicate detection) —</option>
+          {fieldEntries.map((e) => <option key={e.name} value={e.name}>{e.name}</option>)}
+        </select>
+      </div>
+
+      <div className="border rounded-xl p-4 bg-gray-50">
+        <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">4 — Table Columns</p>
         <p className="text-xs text-gray-500 mb-3">Column names in the document's table (e.g. item, price, qty).</p>
         <TagInput label="" placeholder="e.g. item" items={tableFields} onChange={setTableFields} />
       </div>
 
       <div className="border rounded-xl p-4 bg-gray-50">
-        <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">4 — Special Conditions</p>
+        <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">5 — Special Conditions</p>
         <p className="text-xs text-gray-500 mb-3">Conditional rules applied during extraction (e.g. if item contains wine then danger=1).</p>
         <TagInput label="" placeholder="e.g. if item contains wine then danger=1" items={specialConditions} onChange={setSpecialConditions} />
       </div>
@@ -2078,7 +1966,7 @@ function FileConfigPanel({
 
 // ─── Main panel ───────────────────────────────────────────────────────────
 
-export default function TemplatesPanel({ uploadResult }: Props) {
+export default function TemplatesPanel() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [view, setView] = useState<View>("list");
   const [reviewResult, setReviewResult] = useState<ExtractionResult | null>(null);
@@ -2086,6 +1974,32 @@ export default function TemplatesPanel({ uploadResult }: Props) {
   const [reviewDocGroups, setReviewDocGroups] = useState<DocumentGroup[]>([]);
   const [reviewFieldConfig, setReviewFieldConfig] = useState<Record<string, FieldConfig> | undefined>(undefined);
   const [configTemplate, setConfigTemplate] = useState<Template | null>(null);
+
+  const [file, setFile] = useState<File | null>(null);
+  const [uploadResult, setUploadResult] = useState<UploadResult | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  const handleFileUpload = async (files: File[]) => {
+    const f = files[0];
+    if (!f) return;
+    setUploading(true);
+    setUploadError(null);
+    const res = await uploadPdf(f);
+    setUploading(false);
+    if (res.success && res.data) {
+      setFile(f);
+      setUploadResult(res.data);
+    } else {
+      setUploadError(res.error || "Upload failed");
+    }
+  };
+
+  const handleChangeFile = () => {
+    setFile(null);
+    setUploadResult(null);
+    setUploadError(null);
+  };
 
   useEffect(() => { loadTemplates(); }, []);
 
@@ -2158,9 +2072,18 @@ export default function TemplatesPanel({ uploadResult }: Props) {
         </button>
       </div>
 
-      {!uploadResult && (
-        <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-          Upload a PDF above to detect and extract data using a template.
+      {!uploadResult ? (
+        <div className="space-y-2">
+          <p className="text-xs text-gray-500">Upload a PDF to detect and extract data using a template below.</p>
+          <FileUploadZone onFiles={handleFileUpload} multiple={false} uploading={uploading} />
+          {uploadError && <p className="text-red-600 text-xs">{uploadError}</p>}
+        </div>
+      ) : (
+        <div className="flex items-center justify-between text-sm text-gray-500 bg-gray-50 border rounded-lg px-3 py-2">
+          <span className="truncate">{file?.name} · {uploadResult.page_count} page{uploadResult.page_count === 1 ? "" : "s"}</span>
+          <button onClick={handleChangeFile} className="text-xs text-blue-600 hover:underline flex-shrink-0 ml-3">
+            Choose a different file
+          </button>
         </div>
       )}
 

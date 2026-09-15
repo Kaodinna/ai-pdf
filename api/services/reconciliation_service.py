@@ -1,4 +1,4 @@
-from services.file_record_service import get_file_record, list_file_records
+from services.file_record_service import get_accessible_file_record
 
 
 def _get_field_value(record: dict, field: str) -> str | None:
@@ -9,10 +9,10 @@ def _get_field_value(record: dict, field: str) -> str | None:
     return None
 
 
-def get_all_fields(file_ids: list[str]) -> list[str]:
+def get_all_fields(file_ids: list[str], user: dict) -> list[str]:
     fields: set[str] = set()
     for fid in file_ids:
-        rec = get_file_record(fid)
+        rec = get_accessible_file_record(fid, user)
         if not rec:
             continue
         for page in rec.get("pages", []):
@@ -24,10 +24,11 @@ def reconcile(
     file_ids: list[str],
     match_field: str,
     compare_fields: list[str],
+    user: dict,
 ) -> list[dict]:
     records = []
     for fid in file_ids:
-        rec = get_file_record(fid)
+        rec = get_accessible_file_record(fid, user)
         if rec:
             records.append(rec)
 

@@ -5,6 +5,7 @@ from typing import Optional
 from services.library_service import (
     list_libraries, get_library, create_library, update_library, delete_library,
     add_row, update_row, delete_row, import_csv_rows, lookup_value,
+    reindex_search, list_cache, clear_cache, delete_cache_row,
 )
 
 router = APIRouter()
@@ -119,3 +120,35 @@ async def import_csv(library_id: str, body: CSVImport):
 async def lookup(library_id: str, body: LookupRequest):
     found = lookup_value(library_id, body.column, body.value)
     return {"success": True, "data": {"found": found}, "error": None}
+
+
+@router.post("/libraries/{library_id}/reindex")
+async def reindex(library_id: str):
+    updated = reindex_search(library_id)
+    if not updated:
+        return {"success": False, "data": None, "error": "Library not found"}
+    return {"success": True, "data": updated, "error": None}
+
+
+@router.get("/libraries/{library_id}/cache")
+async def get_cache(library_id: str):
+    lib = get_library(library_id)
+    if not lib:
+        return {"success": False, "data": None, "error": "Library not found"}
+    return {"success": True, "data": list_cache(library_id), "error": None}
+
+
+@router.post("/libraries/{library_id}/cache/clear")
+async def clear_lib_cache(library_id: str):
+    updated = clear_cache(library_id)
+    if not updated:
+        return {"success": False, "data": None, "error": "Library not found"}
+    return {"success": True, "data": updated, "error": None}
+
+
+@router.delete("/libraries/{library_id}/cache/{cache_row_id}")
+async def delete_cache_entry(library_id: str, cache_row_id: str):
+    updated = delete_cache_row(library_id, cache_row_id)
+    if not updated:
+        return {"success": False, "data": None, "error": "Library not found"}
+    return {"success": True, "data": updated, "error": None}

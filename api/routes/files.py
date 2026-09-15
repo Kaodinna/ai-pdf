@@ -1,15 +1,19 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 from typing import Optional
 
 from services.file_record_service import (
-    list_file_records,
-    get_file_record,
     update_file_record,
     delete_file_record,
+    add_comment,
+    list_comments,
+    list_file_records_for,
+    get_accessible_file_record,
 )
 from services.audit_service import log_event
 from services.approval_service import get_route_for_state
+from services.ai_memory_service import create_memory
+from services.metrics_service import increment as increment_metric
 
 router = APIRouter()
 
@@ -24,6 +28,7 @@ class FieldUpdate(BaseModel):
     value: Optional[str] = None
     action: str = "update"  # "update" | "add" | "delete"
     user: str = "system"
+    reason: Optional[str] = None
 
 
 class AssignUpdate(BaseModel):
@@ -40,18 +45,34 @@ class BulkDelete(BaseModel):
     file_ids: list[str]
 
 
+class FieldDecisionUpdate(BaseModel):
+    field: str
+    status: str  # "approved" | "needs_review" | "rejected"
+    user: str = "system"
+
+
+class RecordDecisionUpdate(BaseModel):
+    decision: str  # "approved" | "for_review" | "rejected"
+    user: str = "system"
+
+
+class CommentCreate(BaseModel):
+    text: str
+    user: str = "system"
+
+
 @router.get("/files")
-async def get_files():
+async def get_files(request: Request):
     try:
-        return {"success": True, "data": list_file_records(), "error": None}
+        return {"success": True, "data": list_file_records_for(request.state.user), "error": None}
     except Exception as e:
         return {"success": False, "data": None, "error": str(e)}
 
 
 @router.get("/files/{file_id}")
-async def get_file(file_id: str):
+async def get_file(file_id: str, request: Request):
     try:
-        record = get_file_record(file_id)
+        record = get_accessible_file_record(file_id, request.state.user)
         if not record:
             return {"success": False, "data": None, "error": "File record not found"}
         return {"success": True, "data": record, "error": None}
@@ -60,11 +81,13 @@ async def get_file(file_id: str):
 
 
 @router.patch("/files/{file_id}/status")
-async def set_file_status(file_id: str, body: StatusUpdate):
+async def set_file_status(file_id: str, body: StatusUpdate, request: Request):
     if not body.status.strip():
         return {"success": False, "data": None, "error": "status is required"}
     try:
-        record = get_file_record(file_id)
+        record = get_accessible_file_record(file_id, request.state.user)
+        if not record:
+            return {"success": False, "data": None, "error": "File record not found"}
         old_status = record.get("status") if record else None
         updated = update_file_record(file_id, {"status": body.status})
         if not updated:
@@ -85,9 +108,9 @@ async def set_file_status(file_id: str, body: StatusUpdate):
 
 
 @router.patch("/files/{file_id}/assign")
-async def assign_file(file_id: str, body: AssignUpdate):
+async def assign_file(file_id: str, body: AssignUpdate, request: Request):
     try:
-        record = get_file_record(file_id)
+        record = get_accessible_file_record(file_id, request.state.user)
         if not record:
             return {"success": False, "data": None, "error": "File record not found"}
         updated = update_file_record(file_id, {"assigned_to": body.assigned_to})
@@ -101,12 +124,22 @@ async def assign_file(file_id: str, body: AssignUpdate):
 
 
 @router.patch("/files/{file_id}/fields")
-async def update_field(file_id: str, body: FieldUpdate):
+async def update_field(file_id: str, body: FieldUpdate, request: Request):
     try:
-        record = get_file_record(file_id)
+        record = get_accessible_file_record(file_id, request.state.user)
         if not record:
             return {"success": False, "data": None, "error": "File record not found"}
         pages = record.get("pages", [])
+        old_value = None
+        was_ai_derived = False
+        was_approved = False
+        if pages:
+            for page in pages:
+                if body.field in (page.get("fields") or {}):
+                    old_value = page["fields"][body.field]
+                    was_ai_derived = body.field in (page.get("field_meta") or {})
+                    was_approved = (page.get("field_meta") or {}).get(body.field, {}).get("status") == "approved"
+                    break
         if not pages:
             if body.action in ("update", "add"):
                 pages = [{"page_number": 1, "fields": {body.field: body.value},
@@ -128,16 +161,116 @@ async def update_field(file_id: str, body: FieldUpdate):
                   entity_name=record.get("filename", ""),
                   user=body.user,
                   details={"field": body.field, "value": body.value})
+
+        if body.action == "update" and was_approved and body.value != old_value:
+            increment_metric("corrected_after_approval_total")
+
+        if body.action == "update" and body.reason and was_ai_derived and body.value != old_value:
+            memory = create_memory(
+                field_name=body.field,
+                doc_type=record.get("template_type") or record.get("template_name"),
+                original_value=old_value,
+                corrected_value=body.value,
+                reason=body.reason,
+                created_by=body.user,
+            )
+            log_event("ai_memory_created", "file", file_id,
+                      entity_name=record.get("filename", ""),
+                      user=body.user,
+                      details={"memory_id": memory["id"], "field": body.field})
+
         return {"success": True, "data": updated, "error": None}
     except Exception as e:
         return {"success": False, "data": None, "error": str(e)}
 
 
+@router.patch("/files/{file_id}/fields/decision")
+async def set_field_decision(file_id: str, body: FieldDecisionUpdate, request: Request):
+    if body.status not in ("approved", "needs_review", "rejected"):
+        return {"success": False, "data": None, "error": "status must be approved, needs_review, or rejected"}
+    try:
+        record = get_accessible_file_record(file_id, request.state.user)
+        if not record:
+            return {"success": False, "data": None, "error": "File record not found"}
+        pages = record.get("pages", [])
+        found = False
+        for page in pages:
+            if body.field in (page.get("fields") or {}):
+                page.setdefault("field_meta", {}).setdefault(body.field, {"confidence": 0, "evidence": ""})
+                page["field_meta"][body.field]["status"] = body.status
+                found = True
+        if not found:
+            return {"success": False, "data": None, "error": f"Field '{body.field}' not found on this record"}
+        updated = update_file_record(file_id, {"pages": pages})
+        log_event("field_decision", "file", file_id,
+                  entity_name=record.get("filename", ""),
+                  user=body.user,
+                  details={"field": body.field, "status": body.status})
+        return {"success": True, "data": updated, "error": None}
+    except Exception as e:
+        return {"success": False, "data": None, "error": str(e)}
+
+
+@router.post("/files/{file_id}/decision")
+async def set_record_decision(file_id: str, body: RecordDecisionUpdate, request: Request):
+    if body.decision not in ("approved", "for_review", "rejected"):
+        return {"success": False, "data": None, "error": "decision must be approved, for_review, or rejected"}
+    try:
+        record = get_accessible_file_record(file_id, request.state.user)
+        if not record:
+            return {"success": False, "data": None, "error": "File record not found"}
+        pages = record.get("pages", [])
+        if body.decision == "approved":
+            for page in pages:
+                for fname in (page.get("fields") or {}):
+                    page.setdefault("field_meta", {}).setdefault(fname, {"confidence": 0, "evidence": ""})
+                    page["field_meta"][fname]["status"] = "approved"
+        updated = update_file_record(file_id, {"decision": body.decision, "pages": pages})
+        log_event("decision", "file", file_id,
+                  entity_name=record.get("filename", ""),
+                  user=body.user,
+                  details={"decision": body.decision})
+        return {"success": True, "data": updated, "error": None}
+    except Exception as e:
+        return {"success": False, "data": None, "error": str(e)}
+
+
+@router.get("/files/{file_id}/comments")
+async def get_file_comments(file_id: str, request: Request):
+    try:
+        record = get_accessible_file_record(file_id, request.state.user)
+        if not record:
+            return {"success": False, "data": None, "error": "File record not found"}
+        return {"success": True, "data": list_comments(file_id), "error": None}
+    except Exception as e:
+        return {"success": False, "data": None, "error": str(e)}
+
+
+@router.post("/files/{file_id}/comments")
+async def post_file_comment(file_id: str, body: CommentCreate, request: Request):
+    if not body.text.strip():
+        return {"success": False, "data": None, "error": "text is required"}
+    try:
+        record = get_accessible_file_record(file_id, request.state.user)
+        if not record:
+            return {"success": False, "data": None, "error": "File record not found"}
+        comment = add_comment(file_id, body.user, body.text.strip())
+        log_event("commented", "file", file_id,
+                  entity_name=record.get("filename", ""),
+                  user=body.user,
+                  details={"comment_id": comment["id"]})
+        return {"success": True, "data": comment, "error": None}
+    except Exception as e:
+        return {"success": False, "data": None, "error": str(e)}
+
+
 @router.post("/files/bulk/status")
-async def bulk_status(body: BulkStatusUpdate):
+async def bulk_status(body: BulkStatusUpdate, request: Request):
     updated = 0
     route = get_route_for_state(body.status)
     for fid in body.file_ids:
+        if not get_accessible_file_record(fid, request.state.user):
+            continue
         r = update_file_record(fid, {"status": body.status})
         if r:
             updated += 1
@@ -151,10 +284,12 @@ async def bulk_status(body: BulkStatusUpdate):
 
 
 @router.post("/files/bulk/delete")
-async def bulk_delete(body: BulkDelete):
+async def bulk_delete(body: BulkDelete, request: Request):
     deleted = 0
     for fid in body.file_ids:
-        rec = get_file_record(fid)
+        rec = get_accessible_file_record(fid, request.state.user)
+        if not rec:
+            continue
         if delete_file_record(fid):
             deleted += 1
             log_event("deleted", "file", fid, entity_name=rec.get("filename", "") if rec else "")
@@ -162,10 +297,12 @@ async def bulk_delete(body: BulkDelete):
 
 
 @router.delete("/files/{file_id}")
-async def remove_file(file_id: str):
+async def remove_file(file_id: str, request: Request):
     try:
-        record = get_file_record(file_id)
-        name = record.get("filename", "") if record else ""
+        record = get_accessible_file_record(file_id, request.state.user)
+        if not record:
+            return {"success": False, "data": None, "error": "File record not found"}
+        name = record.get("filename", "")
         deleted = delete_file_record(file_id)
         if not deleted:
             return {"success": False, "data": None, "error": "File record not found"}

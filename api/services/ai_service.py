@@ -12,7 +12,7 @@ from .pdf_service import (
     render_pages_as_images,
 )
 
-MODEL = "claude-opus-4-8"
+MODEL = "claude-sonnet-5"
 
 
 def _get_client() -> anthropic.Anthropic:
@@ -28,6 +28,39 @@ def _parse_json_from_response(text: str) -> dict:
     if not match:
         raise ValueError(f"No JSON object found in AI response: {text[:200]}")
     return json.loads(match.group())
+
+
+def _pages_need_vision(pages_meta: list[dict]) -> bool:
+    """
+    True if any page lacks a real text layer (e.g. a scan), meaning vision is
+    actually required. A page with a text layer is read more accurately (and
+    far more cheaply) straight from that layer than by re-OCR'ing a rendered
+    image of it, so vision is only worth the cost when text extraction fails.
+    """
+    return any(not (p.get("text_preview") or "").strip() for p in pages_meta)
+
+
+def _call_claude_for_json(content: list[dict], max_tokens: int = 8192, context: str = "") -> dict | None:
+    """
+    Call Claude expecting a JSON object back. Returns None (and logs why) on any
+    failure — including a response truncated by the token budget before the JSON
+    closed — instead of silently pretending nothing was found.
+    """
+    msg = None
+    try:
+        client = _get_client()
+        msg = client.messages.create(
+            model=MODEL,
+            max_tokens=max_tokens,
+            thinking={"type": "adaptive"},
+            messages=[{"role": "user", "content": content}],
+        )
+        raw = next(b.text for b in msg.content if b.type == "text")
+        return _parse_json_from_response(raw)
+    except Exception as e:
+        stop_reason = getattr(msg, "stop_reason", "no response")
+        print(f"[ai_service:{context}] extraction call failed (stop_reason={stop_reason}): {e}")
+        return None
 
 
 def _image_block(img: dict) -> dict:
@@ -62,8 +95,12 @@ def ai_plan_from_instruction(pdf_path: Path, instruction: str) -> dict:
 
         # Try to render all pages as images
         try:
-            page_images = render_pages_as_images(pdf_path, dpi=120)
-            use_vision = True
+            if _pages_need_vision(pages_meta):
+                page_images = render_pages_as_images(pdf_path, dpi=150)
+                use_vision = True
+            else:
+                page_images = []
+                use_vision = False
         except Exception:
             page_images = []
             use_vision = False
@@ -163,8 +200,12 @@ def ai_apply_template(pdf_path: Path, template: dict) -> dict:
 - Identifying fields: {fields_hint}"""
 
         try:
-            page_images = render_pages_as_images(pdf_path, dpi=120)
-            use_vision = True
+            if _pages_need_vision(pages_meta):
+                page_images = render_pages_as_images(pdf_path, dpi=150)
+                use_vision = True
+            else:
+                page_images = []
+                use_vision = False
         except Exception:
             page_images = []
             use_vision = False
@@ -269,9 +310,14 @@ def _build_field_hints(
     field_names: list[str],
     field_config: dict | None,
     field_synonyms: dict[str, list[str]] | None,
+    memories: list[dict] | None = None,
 ) -> str:
     """Build a concise per-field guidance block for extraction prompts."""
     lines = []
+    memories_by_field: dict[str, list[dict]] = {}
+    for m in memories or []:
+        memories_by_field.setdefault(m["field_name"], []).append(m)
+
     for fname in field_names:
         cfg = (field_config or {}).get(fname, {})
         syns = cfg.get("synonyms", []) or (field_synonyms or {}).get(fname, [])
@@ -289,6 +335,12 @@ def _build_field_hints(
         line = " ".join(parts)
         if restriction:
             line += f"\n  Rule: {restriction}"
+        for mem in memories_by_field.get(fname, []):
+            line += (
+                f"\n  Learned correction: a reviewer previously corrected "
+                f"\"{mem.get('original_value')}\" to \"{mem.get('corrected_value')}\" "
+                f"because: {mem.get('reason')}. Apply this pattern when it applies."
+            )
         lines.append(line)
 
     if not lines:
@@ -303,16 +355,35 @@ def _extract_fields_with_claude(
     page_text: str = "",
     field_synonyms: dict[str, list[str]] | None = None,
     field_config: dict | None = None,
-) -> dict[str, str | None]:
+    memories: list[dict] | None = None,
+) -> tuple[dict[str, str | None], dict[str, dict]]:
     """
     Fill a fixed JSON skeleton whose keys are exactly the template field names.
     Prefers a page image (vision); falls back to layout-preserved text.
+    Returns (values, meta) where meta[field] = {"confidence": 0-100, "evidence": "..."}.
     """
+    empty_meta = {f: {"confidence": 0, "evidence": "not evaluated"} for f in field_names}
     if not field_names:
-        return {f: None for f in field_names}
+        return {f: None for f in field_names}, empty_meta
 
-    skeleton = {f: None for f in field_names}
-    field_hints = _build_field_hints(field_names, field_config, field_synonyms)
+    skeleton = {f: {"value": None, "confidence": 0, "evidence": ""} for f in field_names}
+    field_hints = _build_field_hints(field_names, field_config, field_synonyms, memories)
+
+    shared_instructions = f"""Fill in ONLY this JSON skeleton. Keep every key exactly as written. Do NOT add or remove keys.
+
+{json.dumps(skeleton, indent=2)}
+{field_hints}
+Extraction rules:
+- "value": the raw value only — never include the label in the value. Multi-line values (e.g. full addresses) should be joined with a newline character. Numbers with units should be returned as-is including the unit (e.g. "407.900 KG"). If a field genuinely does not appear on this page, leave "value" as null — do not guess.
+- "confidence": an integer 0-100 calibrated as follows — do not default to a high number:
+  - 90-100: the value is printed clearly, unambiguously labeled, and read directly off the page with no interpretation
+  - 70-89: the value is legible but required minor interpretation (e.g. an abbreviation, an inferred unit, slightly unclear print)
+  - 40-69: the value is a reasonable inference, not a direct clean read — partially obscured, handwritten, ambiguous label, or guessed from context
+  - 0-39: mostly guessing, or "value" is null
+- "evidence": one short plain-language sentence explaining where and how you found the value (e.g. "Found top-right of page, labeled 'Booking No.'"), or why it was not found.
+- Follow any per-field Rules listed above exactly
+
+Return the filled JSON only. No markdown, no explanation."""
 
     if page_image:
         content: list[dict] = [
@@ -321,59 +392,41 @@ def _extract_fields_with_claude(
                 "type": "text",
                 "text": f"""You are extracting structured field values from a {doc_type} document (shown in the image above).
 
-Fill in ONLY this JSON skeleton. Keep every key exactly as written. Do NOT add or remove keys.
-
-{json.dumps(skeleton, indent=2)}
-{field_hints}
-Extraction rules:
-- Return the raw value only — never include the label in the value
-- Multi-line values (e.g. full addresses) should be joined with a newline character
-- Numbers with units should be returned as-is including the unit (e.g. "407.900 KG")
-- If a field genuinely does not appear on this page, leave it as null — do not guess
-- Follow any per-field Rules listed above exactly
-
-Return the filled JSON only. No markdown, no explanation.""",
+{shared_instructions}""",
             },
         ]
     else:
         if not page_text.strip():
-            return {f: None for f in field_names}
+            return {f: None for f in field_names}, empty_meta
         content = [{
             "type": "text",
             "text": f"""You are extracting structured field values from a {doc_type} document page.
 
 The text below was extracted from a PDF with spatial layout preserved using whitespace.
 
-Fill in ONLY this JSON skeleton. Keep every key exactly as written. Do NOT add or remove keys.
-
-{json.dumps(skeleton, indent=2)}
-{field_hints}
-Extraction rules:
-- Return the raw value only — never include the label in the value
-- Multi-line values (e.g. full addresses) should be joined with a newline character
-- Numbers with units should be returned as-is including the unit (e.g. "407.900 KG")
-- If a field genuinely does not appear on this page, leave it as null — do not guess
-- Follow any per-field Rules listed above exactly
+{shared_instructions}
 
 Document text:
-{page_text}
-
-Return the filled JSON only. No markdown, no explanation.""",
+{page_text}""",
         }]
 
-    try:
-        client = _get_client()
-        msg = client.messages.create(
-            model=MODEL,
-            max_tokens=4096,
-            thinking={"type": "adaptive"},
-            messages=[{"role": "user", "content": content}],
-        )
-        raw = next(b.text for b in msg.content if b.type == "text")
-        result = _parse_json_from_response(raw)
-        return {f: result.get(f) for f in field_names}
-    except Exception:
-        return {f: None for f in field_names}
+    result = _call_claude_for_json(content, context="extract_fields")
+    if result is None:
+        return {f: None for f in field_names}, empty_meta
+
+    values, meta = {}, {}
+    for f in field_names:
+        entry = result.get(f) or {}
+        if not isinstance(entry, dict):
+            values[f] = entry
+            meta[f] = {"confidence": 0, "evidence": "unstructured response"}
+            continue
+        values[f] = entry.get("value")
+        meta[f] = {
+            "confidence": int(entry.get("confidence") or 0),
+            "evidence": entry.get("evidence") or "",
+        }
+    return values, meta
 
 
 def _extract_table_rows_with_claude(
@@ -435,22 +488,57 @@ Document text:
 {page_text}""",
         }]
 
+    msg = None
     try:
         client = _get_client()
         msg = client.messages.create(
             model=MODEL,
-            max_tokens=4096,
+            max_tokens=8192,
             thinking={"type": "adaptive"},
             messages=[{"role": "user", "content": content}],
         )
         raw = next(b.text for b in msg.content if b.type == "text")
         m = re.search(r"\[.*\]", raw, re.DOTALL)
         if not m:
+            print(f"[ai_service:extract_table_rows] no JSON array found in response (stop_reason={msg.stop_reason})")
             return []
         rows = json.loads(m.group())
         return [{c: row.get(c) for c in column_names} for row in rows if isinstance(row, dict)]
-    except Exception:
+    except Exception as e:
+        stop_reason = getattr(msg, "stop_reason", "no response")
+        print(f"[ai_service:extract_table_rows] extraction call failed (stop_reason={stop_reason}): {e}")
         return []
+
+
+def _build_table_evidence(table_rows: list[dict], column_names: list[str], applied_conditions: list[str] | None = None) -> str:
+    """
+    Build a factual evidence narrative for extracted table rows from what was actually
+    observed during extraction — not a post-hoc AI explanation, to avoid fabricating
+    justification (e.g. library matches, tax derivation) the extraction didn't perform.
+    """
+    if not column_names:
+        return ""
+    if not table_rows:
+        return "No table rows were found on this page."
+
+    row_word = "row" if len(table_rows) == 1 else "rows"
+    parts = [f"{len(table_rows)} {row_word} extracted across {len(column_names)} columns."]
+
+    total_cells = len(table_rows) * len(column_names)
+    missing_cells = sum(
+        1 for row in table_rows for col in column_names
+        if row.get(col) in (None, "")
+    )
+    if missing_cells == 0:
+        parts.append("Every cell had a value visible on the page.")
+    else:
+        verb = "was" if missing_cells == 1 else "were"
+        parts.append(f"{missing_cells} of {total_cells} cells {verb} left blank because no value was visible on the page.")
+
+    if applied_conditions:
+        parts.append(f"{len(applied_conditions)} special condition(s) were triggered by these rows — see Applied Rules below.")
+
+    return " ".join(parts)
 
 
 def _apply_conditions_with_ai(table_rows: list[dict], conditions: list[str]) -> list[str]:
@@ -553,8 +641,12 @@ Rules:
 - Every page must appear in exactly one document group"""
 
         try:
-            page_images = render_pages_as_images(pdf_path, dpi=120)
-            use_vision = True
+            if _pages_need_vision(pages_meta):
+                page_images = render_pages_as_images(pdf_path, dpi=150)
+                use_vision = True
+            else:
+                page_images = []
+                use_vision = False
         except Exception:
             page_images = []
             use_vision = False
@@ -638,8 +730,12 @@ Use null for both template_id and template_name if a page doesn't match any temp
 Return valid JSON only, no markdown."""
 
         try:
-            page_images = render_pages_as_images(pdf_path, dpi=120)
-            use_vision = True
+            if _pages_need_vision(pages_meta):
+                page_images = render_pages_as_images(pdf_path, dpi=150)
+                use_vision = True
+            else:
+                page_images = []
+                use_vision = False
         except Exception:
             page_images = []
             use_vision = False
@@ -705,6 +801,9 @@ def ai_extract_template_fields(
     field_config       = template.get("field_config", {})
     table_config       = template.get("table_config", {})
 
+    from services.ai_memory_service import get_active_memories
+    memories = get_active_memories(doc_type)
+
     all_pages = extract_text_per_page(pdf_path, char_limit=1)
     page_nums = (
         [p["page_number"] for p in all_pages if p["page_number"] in page_numbers]
@@ -712,15 +811,17 @@ def ai_extract_template_fields(
         else [p["page_number"] for p in all_pages]
     )
 
+    pages_with_text = {p["page_number"] for p in all_pages if (p.get("text_preview") or "").strip()}
+
     results = []
     for page_num in page_nums:
-        # ── Try to render the page as an image (primary path) ────────────────
-        page_image = _render_page(pdf_path, page_num)
-
-        # ── Text fallback (used when image rendering fails) ───────────────────
-        page_text = ""
-        if not page_image:
+        # ── Only render as an image when the page has no extractable text layer ──
+        if page_num in pages_with_text:
+            page_image = None
             page_text = extract_text_with_layout(pdf_path, page_num)
+        else:
+            page_image = _render_page(pdf_path, page_num)
+            page_text = "" if page_image else extract_text_with_layout(pdf_path, page_num)
 
         # ── Word positions (for highlight overlay only) ───────────────────────
         try:
@@ -732,11 +833,12 @@ def ai_extract_template_fields(
         page_height = word_data["page_height"]
 
         # ── FIELDS: Claude fills in the fixed skeleton ────────────────────────
-        fields = _extract_fields_with_claude(
+        fields, field_meta = _extract_fields_with_claude(
             direct_link_fields, doc_type,
             page_image=page_image, page_text=page_text,
             field_synonyms=field_synonyms,
             field_config=field_config,
+            memories=memories,
         )
 
         # ── POSITIONS: search for each extracted value in the word list ───────
@@ -756,6 +858,9 @@ def ai_extract_template_fields(
         # ── CONDITIONS: Claude evaluates rules against table rows ─────────────
         applied_conditions = _apply_conditions_with_ai(table_rows, special_conditions)
 
+        # ── TABLE EVIDENCE: factual summary of what was extracted ─────────────
+        table_evidence = _build_table_evidence(table_rows, table_fields, applied_conditions)
+
         # ── LIBRARY-DERIVED: auto-fill fields from library lookup ─────────────
         try:
             from services.library_service import library_lookup_derived
@@ -772,21 +877,46 @@ def ai_extract_template_fields(
                     )
                     if derived is not None:
                         fields[fname] = derived
+                        field_meta[fname] = {
+                            "confidence": 100,
+                            "evidence": f"Looked up from library via '{match_field}' = '{match_value}'",
+                        }
         except Exception:
             pass
+
+        _apply_decision_status(fields, field_meta)
 
         results.append({
             "page_number":        page_num,
             "fields":             fields,
+            "field_meta":         field_meta,
             "field_positions":    field_positions,
             "page_width":         page_width,
             "page_height":        page_height,
             "table_rows":         table_rows,
+            "table_evidence":     table_evidence,
             "applied_conditions": applied_conditions,
             "text_preview":       page_text[:800] if page_text else "",
         })
 
     return {"pages": results}
+
+
+def _apply_decision_status(fields: dict[str, str | None], field_meta: dict[str, dict]) -> None:
+    """Stamp each field_meta entry with a review status, gated by the tenant's auto-approve setting."""
+    from services.approval_settings_service import get_settings
+    from services.metrics_service import increment
+    settings = get_settings()
+    enabled = settings.get("auto_approve_enabled", False)
+    threshold = settings.get("auto_approve_threshold", 90)
+    for fname, meta in field_meta.items():
+        if fields.get(fname) is None:
+            meta["status"] = "needs_review"
+        elif enabled and meta.get("confidence", 0) >= threshold:
+            meta["status"] = "approved"
+            increment("auto_approved_fields_total")
+        else:
+            meta["status"] = "needs_review"
 
 
 def ai_smart_extract(pdf_path: Path, page_numbers: list[int] | None = None) -> dict:
@@ -801,28 +931,39 @@ def ai_smart_extract(pdf_path: Path, page_numbers: list[int] | None = None) -> d
         else [p["page_number"] for p in all_pages]
     )
 
+    pages_with_text = {p["page_number"] for p in all_pages if (p.get("text_preview") or "").strip()}
+
     results = []
     for page_num in page_nums:
-        page_image = _render_page(pdf_path, page_num)
-        page_text = "" if page_image else extract_text_with_layout(pdf_path, page_num)
+        # ── Only render as an image when the page has no extractable text layer ──
+        if page_num in pages_with_text:
+            page_image = None
+            page_text = extract_text_with_layout(pdf_path, page_num)
+        else:
+            page_image = _render_page(pdf_path, page_num)
+            page_text = "" if page_image else extract_text_with_layout(pdf_path, page_num)
 
         prompt = """You are analyzing a business document page with no known template.
 
 Look at the document and infer:
 1. "document_type" — a short label for what kind of document this is (e.g. "Commercial Invoice", "Packing List", "Bill of Lading")
-2. "fields" — a flat object of key-value pairs for every distinct labeled field you can see (dates, IDs, names, addresses, amounts, etc). Use clear snake_case keys based on the labels shown on the document.
+2. "fields" — an object keyed by clear snake_case field names (based on the labels shown), where each value is an object {"value": ..., "confidence": 0-100, "evidence": "..."} for every distinct labeled field you can see (dates, IDs, names, addresses, amounts, etc).
 3. "table_columns" — if a table is present, an array of column header names in the order they appear
 4. "table_rows" — if a table is present, an array of row objects whose keys exactly match table_columns
 
 Extraction rules:
-- Return the raw value only — never include the label in the value
-- Multi-line values should be joined with a newline character
-- Numbers with units should be returned as-is including the unit
+- "value": the raw value only — never include the label. Multi-line values should be joined with a newline character. Numbers with units should be returned as-is including the unit.
+- "confidence": an integer 0-100 calibrated as follows — do not default to a high number:
+  - 90-100: printed clearly, unambiguously labeled, read directly with no interpretation
+  - 70-89: legible but required minor interpretation (abbreviation, inferred unit, slightly unclear print)
+  - 40-69: a reasonable inference, not a clean read — partially obscured, handwritten, ambiguous, or guessed from context
+  - 0-39: mostly guessing
+- "evidence": one short plain-language sentence explaining where and how you found the value.
 - If there is no table, return empty arrays for table_columns and table_rows
-- Do not guess values that are not visibly present
+- Do not guess values that are not visibly present — omit the field entirely rather than inventing one
 
 Return ONLY a JSON object of this shape, no markdown, no explanation:
-{"document_type": "...", "fields": {...}, "table_columns": [...], "table_rows": [...]}"""
+{"document_type": "...", "fields": {"field_name": {"value": "...", "confidence": 90, "evidence": "..."}}, "table_columns": [...], "table_rows": [...]}"""
 
         if page_image:
             content: list[dict] = [_image_block(page_image), {"type": "text", "text": prompt}]
@@ -831,30 +972,38 @@ Return ONLY a JSON object of this shape, no markdown, no explanation:
         else:
             results.append({
                 "page_number": page_num, "document_type": None,
-                "fields": {}, "table_columns": [], "table_rows": [],
+                "fields": {}, "table_columns": [], "table_rows": [], "table_evidence": "",
                 "text_preview": "",
             })
             continue
 
-        try:
-            client = _get_client()
-            msg = client.messages.create(
-                model=MODEL,
-                max_tokens=4096,
-                thinking={"type": "adaptive"},
-                messages=[{"role": "user", "content": content}],
-            )
-            raw = next(b.text for b in msg.content if b.type == "text")
-            parsed = _parse_json_from_response(raw)
-        except Exception:
-            parsed = {}
+        parsed = _call_claude_for_json(content, context="smart_extract") or {}
+
+        raw_fields = parsed.get("fields", {}) or {}
+        fields: dict[str, str | None] = {}
+        field_meta: dict[str, dict] = {}
+        for fname, entry in raw_fields.items():
+            if isinstance(entry, dict):
+                fields[fname] = entry.get("value")
+                field_meta[fname] = {
+                    "confidence": int(entry.get("confidence") or 0),
+                    "evidence": entry.get("evidence") or "",
+                }
+            else:
+                fields[fname] = entry
+                field_meta[fname] = {"confidence": 0, "evidence": "unstructured response"}
+        _apply_decision_status(fields, field_meta)
+        smart_table_columns = parsed.get("table_columns", []) or []
+        smart_table_rows = parsed.get("table_rows", []) or []
 
         results.append({
             "page_number": page_num,
             "document_type": parsed.get("document_type"),
-            "fields": parsed.get("fields", {}) or {},
-            "table_columns": parsed.get("table_columns", []) or [],
-            "table_rows": parsed.get("table_rows", []) or [],
+            "fields": fields,
+            "field_meta": field_meta,
+            "table_columns": smart_table_columns,
+            "table_rows": smart_table_rows,
+            "table_evidence": _build_table_evidence(smart_table_rows, smart_table_columns),
             "text_preview": page_text[:800] if page_text else "",
         })
 
@@ -875,8 +1024,8 @@ def ai_refine_extraction(
     mode='headers' corrects field values; mode='table' corrects table rows.
     Returns { "fields": {...} } or { "table_rows": [...] }.
     """
-    page_image = _render_page(pdf_path, page_number)
-    page_text = "" if page_image else extract_text_with_layout(pdf_path, page_number)
+    page_text = extract_text_with_layout(pdf_path, page_number)
+    page_image = None if page_text.strip() else _render_page(pdf_path, page_number)
 
     try:
         client = _get_client()

@@ -1,4 +1,4 @@
-from services.file_record_service import list_file_records
+from services.file_record_service import list_file_records_for
 from services.template_service import get_template
 
 
@@ -17,8 +17,8 @@ def _key_for_record(record: dict, unique_fields: list[str]) -> tuple | None:
     return tuple(values)
 
 
-def find_duplicates() -> list[dict]:
-    records = list_file_records()
+def find_duplicates(user: dict) -> list[dict]:
+    records = list_file_records_for(user)
     by_template: dict[str, list[dict]] = {}
     for r in records:
         tid = r.get("template_id")

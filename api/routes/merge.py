@@ -1,9 +1,11 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from typing import Optional
 
 from services.pdf_service import validate_pdf, merge_pdfs, merge_pdfs_skip_blank
 from services.storage_service import storage
+from services.file_record_service import get_accessible_file_record
 
 router = APIRouter()
 
@@ -15,11 +17,15 @@ class MergeRequest(BaseModel):
 
 
 @router.post("/merge")
-async def merge_pdfs_endpoint(req: MergeRequest):
+async def merge_pdfs_endpoint(req: MergeRequest, request: Request):
     if len(req.file_ids) < 1:
         return {"success": False, "data": None, "error": "At least one file_id required"}
 
-    try:
+    for fid in req.file_ids:
+        if not get_accessible_file_record(fid, request.state.user):
+            return {"success": False, "data": None, "error": "File record not found"}
+
+    def _do_merge() -> str:
         paths = []
         for fid in req.file_ids:
             p = storage.get_upload_path(fid)
@@ -32,7 +38,11 @@ async def merge_pdfs_endpoint(req: MergeRequest):
             selections = req.page_selections or [None] * len(paths)
             result = merge_pdfs(paths, selections)
 
-        filename = storage.save_output(result, "merged.pdf")
+        return storage.save_output(result, "merged.pdf")
+
+    # Merging is synchronous CPU/disk work — keep it off the event loop.
+    try:
+        filename = await run_in_threadpool(_do_merge)
         return {
             "success": True,
             "data": {"download_url": f"/download/{filename}", "filename": filename},

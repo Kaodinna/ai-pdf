@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
 from typing import Optional
@@ -8,7 +8,7 @@ from services.export_service import (
     list_integrations, get_integration, create_integration,
     update_integration, delete_integration, push_to_integration,
 )
-from services.file_record_service import get_file_record, list_file_records
+from services.file_record_service import get_accessible_file_record, list_file_records_for
 
 router = APIRouter()
 
@@ -45,16 +45,16 @@ class PushRequest(BaseModel):
     file_ids: list[str]
 
 
-def _load_records(file_ids: list[str]) -> list[dict]:
+def _load_records(file_ids: list[str], user: dict) -> list[dict]:
     if file_ids:
-        return [r for fid in file_ids if (r := get_file_record(fid))]
-    return list_file_records()
+        return [r for fid in file_ids if (r := get_accessible_file_record(fid, user))]
+    return list_file_records_for(user)
 
 
 @router.post("/export/csv")
-async def export_to_csv(body: ExportRequest):
+async def export_to_csv(body: ExportRequest, request: Request):
     try:
-        records = _load_records(body.file_ids)
+        records = _load_records(body.file_ids, request.state.user)
         data = export_csv(records, body.fields)
         return Response(
             content=data,
@@ -66,9 +66,9 @@ async def export_to_csv(body: ExportRequest):
 
 
 @router.post("/export/excel")
-async def export_to_excel(body: ExportRequest):
+async def export_to_excel(body: ExportRequest, request: Request):
     try:
-        records = _load_records(body.file_ids)
+        records = _load_records(body.file_ids, request.state.user)
         data = export_excel(records, body.fields)
         return Response(
             content=data,
@@ -80,9 +80,9 @@ async def export_to_excel(body: ExportRequest):
 
 
 @router.post("/export/json")
-async def export_to_json(body: ExportRequest):
+async def export_to_json(body: ExportRequest, request: Request):
     try:
-        records = _load_records(body.file_ids)
+        records = _load_records(body.file_ids, request.state.user)
         data = export_json_data(records, body.fields)
         return Response(
             content=data,
@@ -157,14 +157,14 @@ async def test_intg(integration_id: str):
 
 
 @router.post("/export/integrations/{integration_id}/push")
-async def push_intg(integration_id: str, body: PushRequest):
+async def push_intg(integration_id: str, body: PushRequest, request: Request):
     intg = get_integration(integration_id)
     if not intg:
         return {"success": False, "data": None, "error": "Integration not found"}
     if not intg.get("active"):
         return {"success": False, "data": None, "error": "Integration is inactive"}
     try:
-        records = _load_records(body.file_ids)
+        records = _load_records(body.file_ids, request.state.user)
         result = await push_to_integration(intg, records)
         return {"success": result["success"], "data": result, "error": None if result["success"] else result["response_body"]}
     except Exception as e:

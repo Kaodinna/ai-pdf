@@ -1,12 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { groupDocuments } from "@/lib/api";
+import { groupDocuments, uploadPdf } from "@/lib/api";
 import type { UploadResult, DocumentGroup } from "@/lib/api";
-
-interface Props {
-  uploadResult: UploadResult;
-}
+import FileUploadZone from "@/components/FileUploadZone";
 
 const DOC_TYPE_COLORS: Record<string, string> = {
   "Commercial Invoice": "bg-amber-100 text-amber-800 border-amber-300",
@@ -113,10 +110,39 @@ function DocumentCard({ doc, index }: { doc: DocumentGroup; index: number }) {
   );
 }
 
-export default function DocumentGroupPanel({ uploadResult }: Props) {
+export default function DocumentGroupPanel() {
+  const [file, setFile] = useState<File | null>(null);
+  const [uploadResult, setUploadResult] = useState<UploadResult | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
   const [loading, setLoading] = useState(false);
   const [documents, setDocuments] = useState<DocumentGroup[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const handleFileUpload = async (files: File[]) => {
+    const f = files[0];
+    if (!f) return;
+    setUploading(true);
+    setUploadError(null);
+    const res = await uploadPdf(f);
+    setUploading(false);
+    if (res.success && res.data) {
+      setFile(f);
+      setUploadResult(res.data);
+    } else {
+      setUploadError(res.error || "Upload failed");
+    }
+  };
+
+  if (!uploadResult) {
+    return (
+      <div className="space-y-2">
+        <FileUploadZone onFiles={handleFileUpload} multiple={false} uploading={uploading} />
+        {uploadError && <p className="text-red-600 text-sm">{uploadError}</p>}
+      </div>
+    );
+  }
 
   const handleAnalyze = async () => {
     setLoading(true);
@@ -136,6 +162,13 @@ export default function DocumentGroupPanel({ uploadResult }: Props) {
 
   return (
     <div className="space-y-5">
+      <div className="flex items-center justify-between text-sm text-gray-500 bg-gray-50 border rounded-lg px-3 py-2">
+        <span className="truncate">{file?.name} · {uploadResult.page_count} page{uploadResult.page_count === 1 ? "" : "s"}</span>
+        <button onClick={() => { setFile(null); setUploadResult(null); setDocuments(null); }} className="text-xs text-blue-600 hover:underline flex-shrink-0 ml-3">
+          Choose a different file
+        </button>
+      </div>
+
       <div className="flex items-center justify-between">
         <div>
           <h3 className="font-semibold text-gray-800">Document Analysis</h3>

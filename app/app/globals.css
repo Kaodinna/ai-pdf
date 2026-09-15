@@ -7,12 +7,10 @@
   --foreground: #171717;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+/* This app is light-theme only (no `dark:` Tailwind variants are used
+   anywhere) — a prefers-color-scheme override here would just make text
+   inherit a near-white color on the app's white backgrounds, wrecking
+   contrast (this is what made the login inputs unreadable). */
 
 body {
   color: var(--foreground);

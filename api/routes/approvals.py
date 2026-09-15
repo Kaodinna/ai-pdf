@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 from typing import Optional
 
@@ -49,8 +49,8 @@ async def remove_route(route_id: str):
 
 
 @router.get("/approvals/pending")
-async def get_pending():
+async def get_pending(request: Request):
     try:
-        return {"success": True, "data": list_pending_approvals(), "error": None}
+        return {"success": True, "data": list_pending_approvals(request.state.user), "error": None}
     except Exception as e:
         return {"success": False, "data": None, "error": str(e)}

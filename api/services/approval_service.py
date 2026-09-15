@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from services.file_record_service import list_file_records
+from services.file_record_service import list_file_records_for
 from services.audit_service import list_events
 
 ROUTES_FILE = Path(__file__).parent.parent / "data" / "approval_routes.json"
@@ -59,13 +59,13 @@ def _entered_state_at(file_id: str, state_name: str) -> str | None:
     return None
 
 
-def list_pending_approvals() -> list[dict]:
+def list_pending_approvals(user: dict) -> list[dict]:
     routes = {r["state_name"]: r for r in _load()}
     if not routes:
         return []
     pending = []
     now = datetime.utcnow()
-    for record in list_file_records():
+    for record in list_file_records_for(user):
         route = routes.get(record.get("status"))
         if not route:
             continue

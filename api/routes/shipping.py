@@ -1,4 +1,5 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from typing import Optional
 
@@ -9,6 +10,7 @@ from services.shipping_service import (
     separate_pdf_by_groups,
 )
 from services.storage_service import storage
+from services.file_record_service import get_accessible_file_record
 
 router = APIRouter()
 
@@ -24,11 +26,19 @@ class ShippingSeparateRequest(BaseModel):
 
 
 @router.post("/shipping/extract")
-async def extract_shipping_data(req: ShippingExtractRequest):
-    try:
+async def extract_shipping_data(req: ShippingExtractRequest, request: Request):
+    if not get_accessible_file_record(req.file_id, request.state.user):
+        return {"success": False, "data": None, "error": "File record not found"}
+
+    def _extract() -> list:
         path = storage.get_upload_path(req.file_id)
         validate_pdf(path)
-        records = ai_extract_shipping_data(path)
+        return ai_extract_shipping_data(path)
+
+    # The Claude API call inside ai_extract_shipping_data is a blocking
+    # network request that can take many seconds — run it off the event loop.
+    try:
+        records = await run_in_threadpool(_extract)
         return {
             "success": True,
             "data": {
@@ -47,18 +57,24 @@ async def extract_shipping_data(req: ShippingExtractRequest):
 
 
 @router.post("/shipping/separate")
-async def separate_shipping_docs(req: ShippingSeparateRequest):
+async def separate_shipping_docs(req: ShippingSeparateRequest, request: Request):
     if req.group_by not in ("company", "container"):
         return {"success": False, "data": None, "error": "group_by must be 'company' or 'container'"}
     if not req.records:
         return {"success": False, "data": None, "error": "No extracted records provided"}
 
-    try:
+    if not get_accessible_file_record(req.file_id, request.state.user):
+        return {"success": False, "data": None, "error": "File record not found"}
+
+    def _separate() -> tuple[dict, str]:
         path = storage.get_upload_path(req.file_id)
         validate_pdf(path)
-
         groups = group_records(req.records, req.group_by)
-        group_files, zip_filename = separate_pdf_by_groups(path, groups)
+        return separate_pdf_by_groups(path, groups)
+
+    # PDF separation is synchronous CPU/disk work — keep it off the event loop.
+    try:
+        group_files, zip_filename = await run_in_threadpool(_separate)
 
         result_groups = {
             label: {

@@ -41,6 +41,43 @@ def get_template(template_id: str) -> dict | None:
     return next((t for t in _load() if t["id"] == template_id), None)
 
 
+def keyword_match_template(text: str, templates: list[dict]) -> dict | None:
+    """
+    Free, no-AI template match: score each template by how many of its field
+    labels (weighted heavily toward unique_id_fields) appear as substrings in
+    already-extracted page text. Returns the template dict only when there's a
+    single confident winner — ambiguous or weak matches return None so the
+    caller can fall back to the AI-based detector instead of guessing.
+    """
+    haystack = (text or "").lower()
+    if not haystack.strip():
+        return None
+
+    def keywords(t: dict) -> set[str]:
+        labels = list(t.get("direct_link_fields", [])) + list(t.get("unique_id_fields", []))
+        for syns in (t.get("field_synonyms") or {}).values():
+            labels.extend(syns)
+        return {l.lower() for l in labels if l and len(l) > 2}
+
+    scored = []
+    for t in templates:
+        unique_labels = {f.lower() for f in t.get("unique_id_fields", []) if f}
+        direct_labels = keywords(t)
+        unique_hits = sum(1 for k in unique_labels if k in haystack)
+        direct_hits = sum(1 for k in direct_labels if k in haystack)
+        if not unique_labels or unique_hits == 0:
+            continue  # no confident anchor for this template — don't even consider it
+        score = unique_hits * 10 + direct_hits
+        scored.append((score, t))
+
+    if not scored:
+        return None
+    scored.sort(key=lambda x: x[0], reverse=True)
+    if len(scored) > 1 and scored[0][0] == scored[1][0]:
+        return None  # tie — genuinely ambiguous, let the AI path disambiguate
+    return scored[0][1]
+
+
 def create_template(
     name: str,
     template_type: str,

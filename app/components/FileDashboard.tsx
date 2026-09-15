@@ -2,11 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
-  getFileRecords, setFileStatus, deleteFileRecord, getWorkflowStates,
+  getFileRecords, getFileRecord, setFileStatus, deleteFileRecord, getWorkflowStates,
   getTemplates, extractTemplateData, refineExtraction, updateFileField,
   assignFile, bulkUpdateStatus, bulkDelete, smartExtract,
+  setFieldDecision, setRecordDecision, getFileComments, postFileComment,
 } from "@/lib/api";
-import type { FileRecord, WorkflowState, Template } from "@/lib/api";
+import type { FileRecord, WorkflowState, Template, FieldMeta, TemplateComment, FieldPosition } from "@/lib/api";
+import { PdfPageViewer, FileThumbnail } from "@/components/PdfPageViewer";
+import ProposeTemplateModal from "@/components/ProposeTemplateModal";
 
 function formatBytes(b: number) {
   if (b < 1024) return `${b} B`;
@@ -157,13 +160,15 @@ function ReextractModal({
   record,
   onClose,
   onExtracted,
+  initialTemplateId,
 }: {
   record: FileRecord;
   onClose: () => void;
   onExtracted: (updated: FileRecord) => void;
+  initialTemplateId?: string;
 }) {
   const [templates, setTemplates] = useState<Template[]>([]);
-  const [templateId, setTemplateId] = useState(record.template_id ?? "");
+  const [templateId, setTemplateId] = useState(initialTemplateId ?? record.template_id ?? "");
   const [extracting, setExtracting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -190,10 +195,13 @@ function ReextractModal({
       template_name: res.data.template_name,
       template_type: res.data.template_type,
       extracted_at: new Date().toISOString(),
+      decision: res.data.decision ?? record.decision,
       pages: res.data.pages.map((p) => ({
         page_number: p.page_number,
         fields: p.fields,
+        field_meta: p.field_meta,
         table_rows: p.table_rows,
+        table_evidence: p.table_evidence,
         applied_conditions: p.applied_conditions,
         text_preview: p.text_preview,
       })),
@@ -272,10 +280,13 @@ function SmartExtractModal({
       template_name: docType,
       template_type: docType,
       extracted_at: new Date().toISOString(),
+      decision: res.data.decision ?? record.decision,
       pages: pages.map((p) => ({
         page_number: p.page_number,
         fields: p.fields,
+        field_meta: p.field_meta,
         table_rows: p.table_rows,
+        table_evidence: p.table_evidence,
         applied_conditions: [],
         text_preview: p.text_preview,
       })),
@@ -320,37 +331,83 @@ function SmartExtractModal({
 
 // ─── Editable field card ───────────────────────────────────────────────────
 
+function ConfidenceBadge({ confidence }: { confidence: number }) {
+  const color = confidence >= 90
+    ? "bg-green-50 text-green-700 border-green-200"
+    : confidence >= 70
+    ? "bg-amber-50 text-amber-700 border-amber-200"
+    : "bg-red-50 text-red-700 border-red-200";
+  return (
+    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border tabular-nums ${color}`}>
+      {confidence}%
+    </span>
+  );
+}
+
+function DecisionDot({ status }: { status?: FieldMeta["status"] }) {
+  if (status === "approved") return <span className="w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0" title="Approved" />;
+  if (status === "rejected") return <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" title="Rejected" />;
+  return <span className="w-1.5 h-1.5 rounded-full bg-gray-300 flex-shrink-0" title="Needs review" />;
+}
+
 function FieldCard({
   fieldKey,
   value,
+  meta,
   onSave,
   onDelete,
+  onDecision,
+  hasPosition,
+  isActive,
+  onHighlight,
 }: {
   fieldKey: string;
   value: string | null;
-  onSave: (key: string, val: string | null) => Promise<void>;
+  meta?: FieldMeta;
+  onSave: (key: string, val: string | null, reason?: string) => Promise<void>;
   onDelete: (key: string) => Promise<void>;
+  onDecision?: (key: string, status: "approved" | "rejected") => Promise<void>;
+  hasPosition?: boolean;
+  isActive?: boolean;
+  onHighlight?: (key: string | null) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value ?? "");
+  const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { if (editing) inputRef.current?.focus(); }, [editing]);
 
+  const isCorrection = !!meta && draft !== (value ?? "");
+
   const commit = async () => {
     setSaving(true);
-    await onSave(fieldKey, draft || null);
+    await onSave(fieldKey, draft || null, isCorrection ? reason.trim() || undefined : undefined);
     setSaving(false);
     setEditing(false);
+    setReason("");
   };
 
-  const cancel = () => { setDraft(value ?? ""); setEditing(false); };
+  const cancel = () => { setDraft(value ?? ""); setReason(""); setEditing(false); };
 
   return (
     <div className={`group relative bg-gray-50 rounded-lg border-l-2 px-3 py-2.5 transition-all
-      ${editing ? "border-blue-500 bg-blue-50/40 ring-1 ring-blue-200" : "border-gray-300 hover:border-blue-300"}`}>
-      <p className="text-xs text-gray-500 mb-1 truncate pr-10">{fieldKey}</p>
+      ${editing ? "border-blue-500 bg-blue-50/40 ring-1 ring-blue-200" : isActive ? "border-amber-400 bg-amber-50/50 ring-1 ring-amber-200" : "border-gray-300 hover:border-blue-300"}`}>
+      <div className="flex items-center gap-1.5 mb-1 pr-10">
+        {meta && <DecisionDot status={meta.status} />}
+        {hasPosition && onHighlight ? (
+          <button type="button"
+            onClick={() => onHighlight(isActive ? null : fieldKey)}
+            title="Click to highlight in document"
+            className={`text-xs truncate flex-1 text-left cursor-pointer ${isActive ? "text-amber-700 font-medium" : "text-blue-600 hover:text-blue-800"}`}>
+            {fieldKey}<span className="ml-1 opacity-50">⌖</span>
+          </button>
+        ) : (
+          <p className="text-xs text-gray-500 truncate flex-1">{fieldKey}</p>
+        )}
+        {meta && <ConfidenceBadge confidence={meta.confidence} />}
+      </div>
       {editing ? (
         <div className="flex items-center gap-1">
           <input ref={inputRef} value={draft} onChange={(e) => setDraft(e.target.value)}
@@ -368,14 +425,42 @@ function FieldCard({
             </svg>
           </button>
         </div>
-      ) : (
+      ) : null}
+      {editing && isCorrection && (
+        <input value={reason} onChange={(e) => setReason(e.target.value)}
+          placeholder="Why? (optional — teaches future extractions)"
+          onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") cancel(); }}
+          className="w-full mt-1.5 text-[11px] bg-white border rounded px-2 py-1 outline-none focus:ring-1 ring-purple-400 text-gray-600" />
+      )}
+      {!editing && (
         <p className={`text-sm font-medium truncate cursor-text ${value ? "text-gray-900" : "text-gray-300 italic"}`}
           onClick={() => setEditing(true)}>
           {value ?? "—"}
         </p>
       )}
+      {meta?.evidence && !editing && (
+        <p className="text-[11px] text-gray-400 italic truncate mt-0.5" title={meta.evidence}>
+          {meta.evidence}
+        </p>
+      )}
       {!editing && (
         <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          {onDecision && (
+            <>
+              <button onClick={() => onDecision(fieldKey, "approved")} title="Approve field"
+                className={`transition-colors ${meta?.status === "approved" ? "text-green-600" : "text-gray-300 hover:text-green-600"}`}>
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                </svg>
+              </button>
+              <button onClick={() => onDecision(fieldKey, "rejected")} title="Reject field"
+                className={`transition-colors ${meta?.status === "rejected" ? "text-red-600" : "text-gray-300 hover:text-red-600"}`}>
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </>
+          )}
           <button onClick={() => setEditing(true)} title="Edit"
             className="text-gray-300 hover:text-blue-600 transition-colors">
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -389,6 +474,67 @@ function FieldCard({
             </svg>
           </button>
         </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Audit Trail ────────────────────────────────────────────────────────────
+
+function AuditTrail({ fileId }: { fileId: string }) {
+  const [comments, setComments] = useState<TemplateComment[]>([]);
+  const [text, setText] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [posting, setPosting] = useState(false);
+
+  useEffect(() => {
+    setLoading(true);
+    getFileComments(fileId).then((res) => {
+      if (res.success && res.data) setComments(res.data);
+      setLoading(false);
+    });
+  }, [fileId]);
+
+  const handleSubmit = async () => {
+    if (!text.trim()) return;
+    setPosting(true);
+    const res = await postFileComment(fileId, text.trim());
+    setPosting(false);
+    if (res.success && res.data) {
+      setComments((prev) => [res.data!, ...prev]);
+      setText("");
+    }
+  };
+
+  return (
+    <div className="border-t pt-4 mt-4">
+      <h4 className="text-sm font-semibold text-gray-700 mb-3">Audit Trail</h4>
+      <div className="flex gap-2 mb-4">
+        <input value={text} onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
+          placeholder="Add a comment…"
+          className="flex-1 text-sm border rounded-lg px-3 py-2 outline-none focus:ring-1 ring-blue-400" />
+        <button onClick={handleSubmit} disabled={posting || !text.trim()}
+          className="text-sm bg-blue-700 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-800 disabled:opacity-50 flex-shrink-0">
+          Submit
+        </button>
+      </div>
+      {loading ? (
+        <p className="text-xs text-gray-400">Loading…</p>
+      ) : comments.length === 0 ? (
+        <p className="text-xs text-gray-400">No comments yet.</p>
+      ) : (
+        <ul className="space-y-2.5">
+          {comments.map((c) => (
+            <li key={c.id} className="text-sm bg-gray-50 rounded-lg px-3 py-2">
+              <div className="flex items-center gap-2 mb-0.5">
+                <span className="font-medium text-gray-700 text-xs">{c.user}</span>
+                <span className="text-[11px] text-gray-400">{formatDate(c.timestamp)}</span>
+              </div>
+              <p className="text-gray-600">{c.text}</p>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );
@@ -415,28 +561,46 @@ function FileDetailView({
   const [showRefine, setShowRefine] = useState(false);
   const [showReextract, setShowReextract] = useState(false);
   const [showSmartExtract, setShowSmartExtract] = useState(false);
+  const [showProposeTemplate, setShowProposeTemplate] = useState(false);
+  const [pendingTemplateId, setPendingTemplateId] = useState<string | null>(null);
   const [addingField, setAddingField] = useState(false);
   const [newKey, setNewKey] = useState("");
   const [newVal, setNewVal] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [assignedTo, setAssignedTo] = useState(record.assigned_to ?? "");
   const [savingAssign, setSavingAssign] = useState(false);
+  const [activeField, setActiveField] = useState<string | null>(null);
+  const [activePageIdx, setActivePageIdx] = useState(0);
+  const [showOriginal, setShowOriginal] = useState(true);
 
   const currentStatus = record.status;
   const currentIdx = workflowStates.findIndex((s) => s.name === currentStatus);
   const progressPct = workflowStates.length > 0 ? ((currentIdx + 1) / workflowStates.length) * 100 : 0;
 
-  // Aggregate all fields (first non-null wins across pages)
+  // Aggregate all fields (first non-null wins across pages), remembering which
+  // page each field's highlight position lives on so clicking a field jumps
+  // the viewer to the right page.
   const allFields: Record<string, string | null> = {};
-  for (const page of record.pages) {
+  const allFieldsMeta: Record<string, FieldMeta> = {};
+  const fieldPageIdx: Record<string, number> = {};
+  record.pages.forEach((page, pageIdx) => {
     for (const [k, v] of Object.entries(page.fields)) {
       if (allFields[k] === undefined || (v !== null && allFields[k] === null)) {
         allFields[k] = v;
       }
+      if (page.field_positions?.[k] && fieldPageIdx[k] === undefined) {
+        fieldPageIdx[k] = pageIdx;
+      }
     }
-  }
+    for (const [k, m] of Object.entries(page.field_meta ?? {})) {
+      if (!allFieldsMeta[k]) allFieldsMeta[k] = m;
+    }
+  });
+  const metaCount = Object.keys(allFieldsMeta).length;
+  const needsReviewCount = Object.values(allFieldsMeta).filter((m) => m.status !== "approved").length;
 
   const tableRows = record.pages.flatMap((p) => p.table_rows);
+  const tableEvidence = record.pages.map((p) => p.table_evidence).filter(Boolean) as string[];
 
   const handleStatus = async (stateName: string) => {
     setSaving(true);
@@ -448,8 +612,8 @@ function FileDetailView({
     }
   };
 
-  const handleSaveField = async (key: string, val: string | null) => {
-    const res = await updateFileField(record.id, key, val, "update");
+  const handleSaveField = async (key: string, val: string | null, reason?: string) => {
+    const res = await updateFileField(record.id, key, val, "update", reason);
     if (res.success && res.data) { setRecord(res.data); onStatusChange(res.data); }
   };
 
@@ -479,6 +643,18 @@ function FileDetailView({
 
   const handleRefined = (updated: FileRecord) => { setRecord(updated); onStatusChange(updated); };
   const handleExtracted = (updated: FileRecord) => { setRecord(updated); onStatusChange(updated); };
+
+  const [decisioning, setDecisioning] = useState(false);
+  const handleFieldDecision = async (key: string, status: "approved" | "rejected") => {
+    const res = await setFieldDecision(record.id, key, status);
+    if (res.success && res.data) { setRecord(res.data); onStatusChange(res.data); }
+  };
+  const handleRecordDecision = async (decision: "approved" | "for_review" | "rejected") => {
+    setDecisioning(true);
+    const res = await setRecordDecision(record.id, decision);
+    setDecisioning(false);
+    if (res.success && res.data) { setRecord(res.data); onStatusChange(res.data); }
+  };
 
   return (
     <div className="flex flex-col h-full">
@@ -520,6 +696,28 @@ function FileDetailView({
             </svg>
             Re-extract
           </button>
+          {metaCount > 0 && (
+            <span className="text-xs text-gray-400">
+              {needsReviewCount === 0 ? "all fields approved" : `${needsReviewCount}/${metaCount} need review`}
+            </span>
+          )}
+          <div className="flex items-center rounded-lg border overflow-hidden">
+            <button onClick={() => handleRecordDecision("approved")} disabled={decisioning}
+              className={`text-xs px-3 py-1.5 font-medium transition-colors disabled:opacity-50
+                ${record.decision === "approved" ? "bg-green-600 text-white" : "text-green-700 hover:bg-green-50"}`}>
+              Approve
+            </button>
+            <button onClick={() => handleRecordDecision("for_review")} disabled={decisioning}
+              className={`text-xs px-3 py-1.5 font-medium border-l transition-colors disabled:opacity-50
+                ${record.decision === "for_review" ? "bg-amber-500 text-white" : "text-amber-700 hover:bg-amber-50"}`}>
+              For Review
+            </button>
+            <button onClick={() => handleRecordDecision("rejected")} disabled={decisioning}
+              className={`text-xs px-3 py-1.5 font-medium border-l transition-colors disabled:opacity-50
+                ${record.decision === "rejected" ? "bg-red-600 text-white" : "text-red-700 hover:bg-red-50"}`}>
+              Reject
+            </button>
+          </div>
           <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
             {currentStatus}
           </span>
@@ -530,6 +728,79 @@ function FileDetailView({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
             </svg>
           </button>
+        </div>
+      </div>
+
+      {!record.template_id && (
+        <div className="flex items-center gap-3 px-4 py-2.5 mb-4 bg-amber-50 border border-amber-200 rounded-lg text-sm">
+          <span className="text-amber-800">
+            {record.suggested_template_name
+              ? `Suggested match: ${record.suggested_template_name} — apply it by clicking on Run Extraction below.`
+              : "No template matches this document."}
+          </span>
+          <button onClick={() => setShowProposeTemplate(true)}
+            className="text-xs bg-amber-600 text-white px-3 py-1.5 rounded-lg font-medium hover:bg-amber-700 transition-colors ml-auto">
+            Create Template From This Document
+          </button>
+        </div>
+      )}
+
+      {/* File Status / Assigned To / File Progression — moved up top to free room below */}
+      <div className="grid grid-cols-3 gap-4 mb-4">
+        <div className="border rounded-xl p-3 bg-white">
+          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">File Status</h4>
+          {workflowStates.length === 0 ? (
+            <p className="text-xs text-gray-400">No workflow states configured.</p>
+          ) : (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+              {workflowStates.map((state, idx) => {
+                const isDone = currentIdx >= 0 && idx <= currentIdx;
+                const isCurrent = state.name === currentStatus;
+                return (
+                  <button key={state.id} disabled={saving} onClick={() => handleStatus(state.name)}
+                    className={`flex items-center gap-1.5 text-left transition-colors group
+                      ${isCurrent ? "text-blue-700" : isDone ? "text-gray-700" : "text-gray-400"}`}>
+                    <span className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors
+                      ${isCurrent ? "border-blue-600 bg-blue-600" : isDone ? "border-green-500 bg-green-500" : "border-gray-300 bg-white group-hover:border-blue-400"}`}>
+                      {isDone && (
+                        <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                    </span>
+                    <span className={`text-xs font-medium whitespace-nowrap ${isCurrent ? "text-blue-700" : isDone ? "text-gray-700" : "text-gray-400"}`}>
+                      {state.name}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="border rounded-xl p-3 bg-white">
+          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Assigned To</h4>
+          <input
+            value={assignedTo}
+            onChange={(e) => setAssignedTo(e.target.value)}
+            onBlur={async () => {
+              setSavingAssign(true);
+              const res = await assignFile(record.id, assignedTo || null);
+              if (res.success && res.data) onStatusChange(res.data);
+              setSavingAssign(false);
+            }}
+            placeholder="Name or email"
+            className="w-full text-xs border rounded px-2 py-1.5 outline-none focus:ring-1 ring-blue-400"
+          />
+          {savingAssign && <p className="text-[10px] text-gray-400 mt-1">Saving…</p>}
+        </div>
+
+        <div className="border rounded-xl p-3 bg-white flex items-center gap-3">
+          <ProgressRing pct={progressPct} />
+          <div>
+            <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">File Progression</h4>
+            <p className="text-xs text-gray-500">{currentIdx + 1} of {workflowStates.length} states</p>
+          </div>
         </div>
       </div>
 
@@ -553,10 +824,24 @@ function FileDetailView({
                   <h4 className="text-sm font-semibold text-gray-700">
                     {record.template_name ? `${record.template_name} Fields` : "Extracted Fields"}
                   </h4>
-                  <button onClick={() => setAddingField(true)}
-                    className="text-xs text-blue-600 border border-dashed border-blue-300 px-2.5 py-1 rounded-lg hover:bg-blue-50 transition-colors">
-                    + Add Field
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {record.pages.length > 0 && (
+                      <button onClick={() => setShowOriginal((s) => !s)}
+                        className={`text-xs px-2.5 py-1 rounded-lg border transition-colors ${showOriginal ? "bg-blue-50 border-blue-200 text-blue-700" : "border-gray-200 text-gray-500 hover:bg-gray-50"}`}>
+                        {showOriginal ? "Hide original" : "Show original"}
+                      </button>
+                    )}
+                    <button onClick={() => setAddingField(true)}
+                      className="text-xs text-blue-600 border border-dashed border-blue-300 px-2.5 py-1 rounded-lg hover:bg-blue-50 transition-colors">
+                      + Add Field
+                    </button>
+                    {!record.template_id && Object.keys(allFields).length > 0 && (
+                      <button onClick={() => setShowReextract(true)}
+                        className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg font-medium hover:bg-blue-700 transition-colors">
+                        Run extraction →
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Add field inline form */}
@@ -579,16 +864,23 @@ function FileDetailView({
 
                 {Object.keys(allFields).length === 0 && !addingField ? (
                   <div className="text-center py-12 text-gray-400 text-sm">
-                    No extraction data yet.
-                    <button onClick={() => setShowReextract(true)} className="block mx-auto mt-2 text-xs text-blue-600 hover:underline">
+                    <p>No extraction data yet.</p>
+                    <button onClick={() => setShowReextract(true)}
+                      className="block mx-auto mt-2 text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg font-medium hover:bg-blue-700 transition-colors">
                       Run extraction →
                     </button>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className={showOriginal && record.pages.length > 0 ? "grid grid-cols-2 gap-3" : "grid grid-cols-3 gap-3"}>
                     {Object.entries(allFields).map(([key, val]) => (
-                      <FieldCard key={key} fieldKey={key} value={val}
-                        onSave={handleSaveField} onDelete={handleDeleteField} />
+                      <FieldCard key={key} fieldKey={key} value={val} meta={allFieldsMeta[key]}
+                        onSave={handleSaveField} onDelete={handleDeleteField} onDecision={handleFieldDecision}
+                        hasPosition={fieldPageIdx[key] !== undefined}
+                        isActive={activeField === key}
+                        onHighlight={(k) => {
+                          setActiveField(k);
+                          if (k && fieldPageIdx[k] !== undefined) setActivePageIdx(fieldPageIdx[k]);
+                        }} />
                     ))}
                   </div>
                 )}
@@ -598,6 +890,15 @@ function FileDetailView({
             {tab === "supporting" && (
               <div>
                 <h4 className="text-sm font-semibold text-gray-700 mb-3">Table Data</h4>
+                {tableEvidence.length > 0 && (
+                  <div className="mb-3 space-y-1">
+                    {tableEvidence.map((ev, i) => (
+                      <p key={i} className="text-xs text-gray-500 italic bg-gray-50 border border-gray-200 rounded px-3 py-2">
+                        <span className="font-semibold not-italic text-gray-600">TABLE EVIDENCE: </span>{ev}
+                      </p>
+                    ))}
+                  </div>
+                )}
                 {tableRows.length === 0 ? (
                   <div className="text-center py-12 text-gray-400 text-sm">No table data extracted.</div>
                 ) : (
@@ -634,79 +935,62 @@ function FileDetailView({
                 )}
               </div>
             )}
+
+            <AuditTrail fileId={record.id} />
           </div>
         </div>
 
-        {/* Right sidebar */}
-        <div className="w-48 flex-shrink-0 flex flex-col gap-4">
-          <div className="border rounded-xl p-4 bg-white">
-            <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">File Status</h4>
-            {workflowStates.length === 0 ? (
-              <p className="text-xs text-gray-400">No workflow states configured.</p>
-            ) : (
-              <ul className="space-y-2">
-                {workflowStates.map((state, idx) => {
-                  const isDone = currentIdx >= 0 && idx <= currentIdx;
-                  const isCurrent = state.name === currentStatus;
-                  return (
-                    <li key={state.id}>
-                      <button disabled={saving} onClick={() => handleStatus(state.name)}
-                        className={`w-full flex items-center gap-2 text-left transition-colors group
-                          ${isCurrent ? "text-blue-700" : isDone ? "text-gray-700" : "text-gray-400"}`}>
-                        <span className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors
-                          ${isCurrent ? "border-blue-600 bg-blue-600" : isDone ? "border-green-500 bg-green-500" : "border-gray-300 bg-white group-hover:border-blue-400"}`}>
-                          {isDone && (
-                            <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                            </svg>
-                          )}
-                        </span>
-                        <span className={`text-xs font-medium ${isCurrent ? "text-blue-700" : isDone ? "text-gray-700" : "text-gray-400"}`}>
-                          {state.name}
-                        </span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
+        {/* Original document — for cross-referencing extracted values */}
+        {showOriginal && tab === "headers" && record.pages.length > 0 && (
+          <div className="w-[36rem] flex-shrink-0 flex flex-col border rounded-xl bg-white overflow-hidden sticky top-0 self-start max-h-[calc(100vh-4rem)]">
+            <div className="flex items-center justify-between px-3 py-2 border-b bg-gray-50">
+              <span className="text-xs font-semibold text-gray-600">Original document</span>
+              {record.pages.length > 1 && (
+                <select
+                  value={activePageIdx}
+                  onChange={(e) => { setActivePageIdx(Number(e.target.value)); setActiveField(null); }}
+                  className="text-xs border rounded px-1.5 py-0.5 bg-white">
+                  {record.pages.map((p, idx) => (
+                    <option key={p.page_number} value={idx}>Page {p.page_number}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              <PdfPageViewer
+                fileId={record.id}
+                pageNumber={record.pages[activePageIdx]?.page_number ?? 1}
+                activeField={activeField}
+                fieldPositions={record.pages[activePageIdx]?.field_positions ?? {}}
+                pageWidth={record.pages[activePageIdx]?.page_width ?? 0}
+                pageHeight={record.pages[activePageIdx]?.page_height ?? 0}
+              />
+            </div>
           </div>
+        )}
 
-          {/* Assignment */}
-          <div className="border rounded-xl p-4 bg-white">
-            <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Assigned To</h4>
-            <input
-              value={assignedTo}
-              onChange={(e) => setAssignedTo(e.target.value)}
-              onBlur={async () => {
-                setSavingAssign(true);
-                const res = await assignFile(record.id, assignedTo || null);
-                if (res.success && res.data) onStatusChange(res.data);
-                setSavingAssign(false);
-              }}
-              placeholder="Name or email"
-              className="w-full text-xs border rounded px-2 py-1.5 outline-none focus:ring-1 ring-blue-400"
-            />
-            {savingAssign && <p className="text-[10px] text-gray-400 mt-1">Saving…</p>}
-          </div>
-
-          {/* File Progression */}
-          <div className="border rounded-xl p-4 bg-white flex flex-col items-center gap-2">
-            <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider self-start">File Progression</h4>
-            <ProgressRing pct={progressPct} />
-            <p className="text-xs text-gray-500 text-center">{currentIdx + 1} of {workflowStates.length} states</p>
-          </div>
-        </div>
       </div>
 
       {showRefine && (
         <RefineModal record={record} onClose={() => setShowRefine(false)} onRefined={handleRefined} />
       )}
       {showReextract && (
-        <ReextractModal record={record} onClose={() => setShowReextract(false)} onExtracted={handleExtracted} />
+        <ReextractModal record={record} onClose={() => { setShowReextract(false); setPendingTemplateId(null); }}
+          onExtracted={handleExtracted} initialTemplateId={pendingTemplateId ?? undefined} />
       )}
       {showSmartExtract && (
         <SmartExtractModal record={record} onClose={() => setShowSmartExtract(false)} onExtracted={handleExtracted} />
+      )}
+      {showProposeTemplate && (
+        <ProposeTemplateModal
+          fileId={record.id}
+          onClose={() => setShowProposeTemplate(false)}
+          onCreated={(tmpl) => {
+            setShowProposeTemplate(false);
+            setPendingTemplateId(tmpl.id);
+            setShowReextract(true);
+          }}
+        />
       )}
     </div>
   );
@@ -725,8 +1009,15 @@ function StatCard({ label, value, color }: { label: string; value: number; color
 
 // ─── Main dashboard ────────────────────────────────────────────────────────
 
-export default function FileDashboard() {
+export default function FileDashboard({
+  focusFileIds,
+  onFocusHandled,
+}: {
+  focusFileIds?: string[] | null;
+  onFocusHandled?: () => void;
+} = {}) {
   const [records, setRecords] = useState<FileRecord[]>([]);
+  const [templates, setTemplates] = useState<Template[]>([]);
   const [workflowStates, setWorkflowStates] = useState<WorkflowState[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<FileRecord | null>(null);
@@ -734,14 +1025,45 @@ export default function FileDashboard() {
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [bulkStatus, setBulkStatus] = useState("");
   const [bulkWorking, setBulkWorking] = useState(false);
+  const [listFilterIds, setListFilterIds] = useState<string[] | null>(null);
+  const [templateFilter, setTemplateFilter] = useState(""); // "" = none picked yet (empty state), "all" = every file
 
   useEffect(() => { loadAll(); }, []);
 
+  useEffect(() => {
+    if (!focusFileIds || focusFileIds.length === 0) return;
+    if (focusFileIds.length > 1) {
+      setListFilterIds(focusFileIds);
+      onFocusHandled?.();
+      return;
+    }
+    const id = focusFileIds[0];
+    const match = records.find((r) => r.id === id);
+    if (match) {
+      setSelected(match);
+      onFocusHandled?.();
+      return;
+    }
+    // Not in the already-loaded list yet — most likely a file that was just
+    // uploaded after that initial load ran. Fetch it directly instead of
+    // silently giving up, so "upload → jump straight into its detail view"
+    // works even though the list hasn't caught up.
+    getFileRecord(id).then((res) => {
+      if (res.success && res.data) {
+        const fetched = res.data;
+        setRecords((prev) => (prev.some((r) => r.id === fetched.id) ? prev : [fetched, ...prev]));
+        setSelected(fetched);
+      }
+      onFocusHandled?.();
+    });
+  }, [focusFileIds]);
+
   const loadAll = async () => {
     setLoading(true);
-    const [recRes, wfRes] = await Promise.all([getFileRecords(), getWorkflowStates()]);
+    const [recRes, wfRes, tplRes] = await Promise.all([getFileRecords(), getWorkflowStates(), getTemplates()]);
     if (recRes.success && recRes.data) setRecords(recRes.data);
     if (wfRes.success && wfRes.data) setWorkflowStates(wfRes.data);
+    if (tplRes.success && tplRes.data) setTemplates(tplRes.data);
     setLoading(false);
   };
 
@@ -772,7 +1094,7 @@ export default function FileDashboard() {
     return next;
   });
 
-  const toggleAll = () => setCheckedIds(checkedIds.size === records.length ? new Set() : new Set(records.map((r) => r.id)));
+  const toggleAll = () => setCheckedIds(checkedIds.size === displayedRecords.length ? new Set() : new Set(displayedRecords.map((r) => r.id)));
 
   const handleBulkStatus = async () => {
     if (!bulkStatus || checkedIds.size === 0) return;
@@ -815,6 +1137,14 @@ export default function FileDashboard() {
   const approvedCount = stateCounts["Approved"] ?? 0;
   const rejectedCount = stateCounts["Rejected"] ?? 0;
   const newCount = stateCounts["New"] ?? 0;
+  const displayedRecords = listFilterIds
+    ? records.filter((r) => listFilterIds.includes(r.id))
+    : templateFilter === "all"
+      ? records
+      : templateFilter
+        ? records.filter((r) => r.template_id === templateFilter)
+        : [];
+  const noFilterChosen = !listFilterIds && !templateFilter;
 
   return (
     <div className="space-y-5">
@@ -828,8 +1158,29 @@ export default function FileDashboard() {
       <div className="border rounded-xl overflow-hidden bg-white">
         <div className="flex items-center justify-between px-4 py-3 border-b bg-gray-50">
           <h3 className="text-sm font-semibold text-gray-700">Processed Files</h3>
-          <button onClick={loadAll} className="text-xs text-blue-600 hover:text-blue-800 font-medium">Refresh</button>
+          <div className="flex items-center gap-3">
+            <select
+              value={templateFilter}
+              onChange={(e) => { setTemplateFilter(e.target.value); setListFilterIds(null); setCheckedIds(new Set()); }}
+              className="text-xs border rounded-lg px-2.5 py-1.5 bg-white outline-none focus:ring-1 ring-blue-400 min-w-[180px]">
+              <option value="">Select a template…</option>
+              <option value="all">All templates</option>
+              {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+            <button onClick={loadAll} className="text-xs text-blue-600 hover:text-blue-800 font-medium">Refresh</button>
+          </div>
         </div>
+
+        {listFilterIds && (
+          <div className="flex items-center gap-3 px-4 py-2.5 bg-amber-50 border-b text-sm">
+            <span className="text-amber-800">
+              Showing {displayedRecords.length} file{displayedRecords.length === 1 ? "" : "s"} from the selected email
+            </span>
+            <button onClick={() => setListFilterIds(null)} className="text-xs text-amber-700 hover:text-amber-900 font-medium ml-auto">
+              Clear filter
+            </button>
+          </div>
+        )}
 
         {/* Bulk action bar */}
         {checkedIds.size > 0 && (
@@ -864,21 +1215,30 @@ export default function FileDashboard() {
             </svg>
             Loading…
           </div>
-        ) : records.length === 0 ? (
+        ) : displayedRecords.length === 0 && noFilterChosen ? (
           <div className="py-16 text-center text-gray-400">
             <svg className="w-10 h-10 mx-auto mb-3 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                 d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
-            <p className="text-sm">No files yet.</p>
-            <p className="text-xs mt-1">Upload a PDF and run extraction to see files here.</p>
+            <p className="text-sm">Select a template above to view its files.</p>
+            <p className="text-xs mt-1">Or choose "All templates" to see everything.</p>
+          </div>
+        ) : displayedRecords.length === 0 ? (
+          <div className="py-16 text-center text-gray-400">
+            <svg className="w-10 h-10 mx-auto mb-3 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <p className="text-sm">No files match this template yet.</p>
+            <p className="text-xs mt-1">Files show up here once extracted or ingested with this template.</p>
           </div>
         ) : (
           <table className="w-full text-sm">
             <thead>
               <tr className="text-xs text-gray-500 border-b">
                 <th className="px-4 py-3 w-8">
-                  <input type="checkbox" checked={records.length > 0 && checkedIds.size === records.length}
+                  <input type="checkbox" checked={displayedRecords.length > 0 && checkedIds.size === displayedRecords.length}
                     onChange={toggleAll} className="rounded border-gray-300" />
                 </th>
                 <th className="text-left px-4 py-3 font-medium">File</th>
@@ -891,7 +1251,7 @@ export default function FileDashboard() {
               </tr>
             </thead>
             <tbody>
-              {records.map((r) => {
+              {displayedRecords.map((r) => {
                 const idx = workflowStates.findIndex((s) => s.name === r.status);
                 const pct = workflowStates.length > 0 ? Math.round(((idx + 1) / workflowStates.length) * 100) : 0;
                 return (
@@ -903,18 +1263,24 @@ export default function FileDashboard() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
+                        <FileThumbnail fileId={r.id} />
                         <span className="font-medium text-gray-900 truncate max-w-[200px]">{r.filename}</span>
                       </div>
-                      <p className="text-xs text-gray-400 mt-0.5 pl-6">{formatBytes(r.size_bytes)}</p>
+                      <p className="text-xs text-gray-400 mt-0.5 pl-8">{formatBytes(r.size_bytes)}</p>
                     </td>
                     <td className="px-3 py-3">
-                      {r.template_name
-                        ? <span className="text-xs bg-indigo-50 text-indigo-700 rounded px-2 py-0.5">{r.template_name}</span>
-                        : <span className="text-xs text-gray-300 italic">—</span>}
+                      {r.template_name ? (
+                        <span className="text-xs bg-indigo-50 text-indigo-700 rounded px-2 py-0.5">{r.template_name}</span>
+                      ) : r.suggested_template_name ? (
+                        <span
+                          className="text-xs bg-amber-50 text-amber-700 rounded px-2 py-0.5"
+                          title="Suggested match — not yet applied"
+                        >
+                          Suggested: {r.suggested_template_name}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-gray-300 italic">—</span>
+                      )}
                     </td>
                     <td className="px-3 py-3 text-gray-600 tabular-nums">{r.page_count}</td>
                     <td className="px-3 py-3 text-gray-500 text-xs whitespace-nowrap">{formatDate(r.uploaded_at)}</td>

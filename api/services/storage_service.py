@@ -3,8 +3,10 @@ import shutil
 import uuid
 from pathlib import Path
 
-UPLOAD_DIR = Path("/tmp/ai-pdf-uploads")
-OUTPUT_DIR = Path("/tmp/ai-pdf-outputs")
+DATA_DIR = Path(__file__).parent.parent / "data"
+
+UPLOAD_DIR = Path(os.environ.get("AI_PDF_UPLOAD_DIR") or DATA_DIR / "uploads")
+OUTPUT_DIR = Path(os.environ.get("AI_PDF_OUTPUT_DIR") or DATA_DIR / "outputs")
 
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
