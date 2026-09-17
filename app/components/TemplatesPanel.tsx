@@ -1495,11 +1495,13 @@ function FieldConfigRow({
   config,
   allFieldNames,
   onChange,
+  onDelete,
 }: {
   fieldName: string;
   config: FieldConfig;
   allFieldNames: string[];
   onChange: (updated: FieldConfig) => void;
+  onDelete?: () => void;
 }) {
   const [synInput, setSynInput] = useState("");
   const [showLibModal, setShowLibModal] = useState(false);
@@ -1517,7 +1519,15 @@ function FieldConfigRow({
       )}
       <tr className="border-b border-gray-100 align-top hover:bg-gray-50/40">
         {/* Field name */}
-        <td className="py-2.5 pr-3 text-xs font-semibold text-gray-800 whitespace-nowrap w-36 align-middle">{fieldName}</td>
+        <td className="py-2.5 pr-3 text-xs font-semibold text-gray-800 whitespace-nowrap w-36 align-middle">
+          <div className="flex items-center gap-1.5">
+            <span>{fieldName}</span>
+            {onDelete && (
+              <button onClick={onDelete} title="Remove field"
+                className="text-gray-300 hover:text-red-500 leading-none flex-shrink-0">&times;</button>
+            )}
+          </div>
+        </td>
 
         {/* Description */}
         <td className="py-2 pr-2 min-w-[120px]">
@@ -1632,6 +1642,43 @@ function FileConfigPanel({
 }) {
   const [tab, setTab] = useState<"headers" | "tables" | "ids" | "refid">("headers");
 
+  // ── field lists (which fields exist at all — separate from their config) ─
+  const [headerFields, setHeaderFields] = useState<string[]>(template.direct_link_fields);
+  const [tableFieldsList, setTableFieldsList] = useState<string[]>(template.table_fields);
+  const [newHeaderField, setNewHeaderField] = useState("");
+  const [newTableField, setNewTableField] = useState("");
+
+  const addHeaderField = () => {
+    const name = newHeaderField.trim();
+    if (!name || headerFields.includes(name)) return;
+    setHeaderFields((prev) => [...prev, name]);
+    setFieldConfig((prev) => ({ ...prev, [name]: emptyFieldConfig() }));
+    setNewHeaderField("");
+  };
+  const removeHeaderField = (name: string) => {
+    setHeaderFields((prev) => prev.filter((f) => f !== name));
+    setFieldConfig((prev) => {
+      const next = { ...prev };
+      delete next[name];
+      return next;
+    });
+  };
+  const addTableField = () => {
+    const name = newTableField.trim();
+    if (!name || tableFieldsList.includes(name)) return;
+    setTableFieldsList((prev) => [...prev, name]);
+    setTableConfig((prev) => ({ ...prev, [name]: emptyFieldConfig() }));
+    setNewTableField("");
+  };
+  const removeTableField = (name: string) => {
+    setTableFieldsList((prev) => prev.filter((f) => f !== name));
+    setTableConfig((prev) => {
+      const next = { ...prev };
+      delete next[name];
+      return next;
+    });
+  };
+
   // ── field configs ──────────────────────────────────────────────────────
   const [fieldConfig, setFieldConfig] = useState<Record<string, FieldConfig>>(() => {
     const fc: Record<string, FieldConfig> = {};
@@ -1671,7 +1718,7 @@ function FileConfigPanel({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const allFields = [...template.direct_link_fields, ...template.table_fields];
+  const allFields = [...headerFields, ...tableFieldsList];
   const allFieldNames = allFields;
 
   // ── save ──────────────────────────────────────────────────────────────
@@ -1679,6 +1726,8 @@ function FileConfigPanel({
     setSaving(true);
     setError(null);
     const res = await updateTemplate(template.id, {
+      direct_link_fields: headerFields,
+      table_fields: tableFieldsList,
       field_config: fieldConfig,
       table_config: tableConfig,
       unique_id_fields: uniqueIdFields,
@@ -1703,13 +1752,13 @@ function FileConfigPanel({
     if (res.success && res.data) {
       const updated = res.data as Template;
       const fc: Record<string, FieldConfig> = {};
-      for (const f of template.direct_link_fields) {
+      for (const f of headerFields) {
         const saved = updated.field_config?.[f];
         fc[f] = saved ? { ...emptyFieldConfig(), ...saved } : emptyFieldConfig();
       }
       setFieldConfig(fc);
       const tc: Record<string, FieldConfig> = {};
-      for (const f of template.table_fields) {
+      for (const f of tableFieldsList) {
         const saved = updated.table_config?.[f];
         tc[f] = saved ? { ...emptyFieldConfig(), ...saved } : emptyFieldConfig();
       }
@@ -1823,39 +1872,65 @@ function FileConfigPanel({
       {/* Tab content */}
       <div className="flex-1 overflow-auto">
         {tab === "headers" && (
-          template.direct_link_fields.length === 0
-            ? <p className="text-xs text-gray-400 text-center py-8">No header fields defined.</p>
-            : (
+          <div className="space-y-3">
+            {headerFields.length === 0 ? (
+              <p className="text-xs text-gray-400 text-center py-8">No header fields defined.</p>
+            ) : (
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[900px]">
                   <thead>{tableHeader}</thead>
                   <tbody>
-                    {template.direct_link_fields.map((f) => (
+                    {headerFields.map((f) => (
                       <FieldConfigRow key={f} fieldName={f} config={fieldConfig[f]} allFieldNames={allFieldNames}
-                        onChange={(updated) => setFieldConfig((prev) => ({ ...prev, [f]: updated }))} />
+                        onChange={(updated) => setFieldConfig((prev) => ({ ...prev, [f]: updated }))}
+                        onDelete={() => removeHeaderField(f)} />
                     ))}
                   </tbody>
                 </table>
               </div>
-            )
+            )}
+            <div className="flex gap-2">
+              <input type="text" value={newHeaderField} placeholder="New field name…"
+                onChange={(e) => setNewHeaderField(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addHeaderField())}
+                className="flex-1 max-w-xs text-xs border border-gray-200 rounded px-2 py-1.5 focus:ring-1 ring-blue-500 outline-none" />
+              <button onClick={addHeaderField} disabled={!newHeaderField.trim()}
+                className="text-xs text-blue-600 border border-dashed border-blue-300 rounded px-3 py-1.5 hover:bg-blue-50 disabled:opacity-50 transition-colors">
+                + Add Field
+              </button>
+            </div>
+          </div>
         )}
 
         {tab === "tables" && (
-          template.table_fields.length === 0
-            ? <p className="text-xs text-gray-400 text-center py-8">No table columns defined.</p>
-            : (
+          <div className="space-y-3">
+            {tableFieldsList.length === 0 ? (
+              <p className="text-xs text-gray-400 text-center py-8">No table columns defined.</p>
+            ) : (
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[900px]">
                   <thead>{tableHeader}</thead>
                   <tbody>
-                    {template.table_fields.map((f) => (
+                    {tableFieldsList.map((f) => (
                       <FieldConfigRow key={f} fieldName={f} config={tableConfig[f]} allFieldNames={allFieldNames}
-                        onChange={(updated) => setTableConfig((prev) => ({ ...prev, [f]: updated }))} />
+                        onChange={(updated) => setTableConfig((prev) => ({ ...prev, [f]: updated }))}
+                        onDelete={() => removeTableField(f)} />
                     ))}
                   </tbody>
                 </table>
               </div>
-            )
+            )}
+            <div className="flex gap-2">
+              <input type="text" value={newTableField} placeholder="New column name…"
+                onChange={(e) => setNewTableField(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addTableField())}
+                className="flex-1 max-w-xs text-xs border border-gray-200 rounded px-2 py-1.5 focus:ring-1 ring-blue-500 outline-none" />
+              <button onClick={addTableField} disabled={!newTableField.trim()}
+                className="text-xs text-blue-600 border border-dashed border-blue-300 rounded px-3 py-1.5 hover:bg-blue-50 disabled:opacity-50 transition-colors">
+                + Add Field
+              </button>
+            </div>
+          </div>
         )}
 
         {tab === "ids" && (

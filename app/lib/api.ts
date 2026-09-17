@@ -1002,6 +1002,11 @@ export async function updateSecuritySettings(payload: Partial<SecuritySettings>)
 
 // ─── Export & Integrations ────────────────────────────────────────────────
 
+export interface FieldMapping {
+  target: string;
+  type: "Text" | "Date" | "Number" | "Currency" | "Boolean";
+}
+
 export interface Integration {
   id: string;
   name: string;
@@ -1010,8 +1015,17 @@ export interface Integration {
   auth_type: "none" | "bearer" | "api_key" | "basic";
   auth_token: string;
   headers: Record<string, string>;
-  field_mapping: Record<string, string>;
+  // A plain string is also accepted for integrations saved before per-field
+  // types existed — treated as {target: value, type: "Text"}. An array fans
+  // one extracted field out to several target keys (e.g. a single "date"
+  // field feeding both etd_sin and eta_sin), each cast independently.
+  field_mapping: Record<string, FieldMapping | string | (FieldMapping | string)[]>;
   description: string;
+  // "wrapped" (default): {source, pushed_at, record_count, records: [...]}
+  // in one request. "flat": the mapped fields alone as the top-level JSON
+  // body, one request per record — for backends (e.g. a Bubble.io API
+  // workflow) that expect their own parameters at the top level.
+  payload_style: "wrapped" | "flat";
   active: boolean;
   last_pushed_at: string | null;
   created_at: string;

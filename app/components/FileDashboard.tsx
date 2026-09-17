@@ -6,8 +6,9 @@ import {
   getTemplates, extractTemplateData, refineExtraction, updateFileField,
   assignFile, bulkUpdateStatus, bulkDelete, smartExtract,
   setFieldDecision, setRecordDecision, getFileComments, postFileComment,
+  getIntegrations, pushToIntegration,
 } from "@/lib/api";
-import type { FileRecord, WorkflowState, Template, FieldMeta, TemplateComment, FieldPosition } from "@/lib/api";
+import type { FileRecord, WorkflowState, Template, FieldMeta, TemplateComment, FieldPosition, Integration } from "@/lib/api";
 import { PdfPageViewer, FileThumbnail } from "@/components/PdfPageViewer";
 import ProposeTemplateModal from "@/components/ProposeTemplateModal";
 
@@ -573,6 +574,35 @@ function FileDetailView({
   const [activePageIdx, setActivePageIdx] = useState(0);
   const [showOriginal, setShowOriginal] = useState(true);
 
+  const [integrations, setIntegrations] = useState<Integration[]>([]);
+  const [pushTargetId, setPushTargetId] = useState("");
+  const [pushing, setPushing] = useState(false);
+  const [pushResult, setPushResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  useEffect(() => {
+    getIntegrations().then((res) => {
+      if (res.success && res.data) {
+        const active = res.data.filter((i) => i.active);
+        setIntegrations(active);
+        if (active.length > 0) setPushTargetId(active[0].id);
+      }
+    });
+  }, []);
+
+  const handlePush = async () => {
+    if (!pushTargetId) return;
+    setPushing(true);
+    setPushResult(null);
+    const res = await pushToIntegration(pushTargetId, [record.id]);
+    setPushing(false);
+    setPushResult({
+      success: res.success && !!res.data?.success,
+      message: res.data
+        ? `${res.data.success ? "✓" : "✗"} ${res.data.response_body.slice(0, 200)}`
+        : (res.error ?? "Push failed"),
+    });
+  };
+
   const currentStatus = record.status;
   const currentIdx = workflowStates.findIndex((s) => s.name === currentStatus);
   const progressPct = workflowStates.length > 0 ? ((currentIdx + 1) / workflowStates.length) * 100 : 0;
@@ -743,6 +773,30 @@ function FileDetailView({
             Create Template From This Document
           </button>
         </div>
+      )}
+
+      {integrations.length > 0 && Object.keys(allFields).length > 0 && (
+        <div className="flex items-center gap-3 px-4 py-2.5 mb-4 bg-indigo-50 border border-indigo-200 rounded-lg text-sm">
+          <span className="text-indigo-800 font-medium flex-shrink-0">Push extracted data to:</span>
+          {integrations.length > 1 ? (
+            <select value={pushTargetId} onChange={(e) => setPushTargetId(e.target.value)}
+              className="text-xs border border-indigo-300 rounded-lg px-2 py-1.5 bg-white outline-none focus:ring-1 ring-indigo-400">
+              {integrations.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
+            </select>
+          ) : (
+            <span className="text-xs text-indigo-700 font-medium">{integrations[0]?.name}</span>
+          )}
+          <button onClick={handlePush} disabled={pushing || !pushTargetId}
+            className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors ml-auto flex-shrink-0">
+            {pushing ? "Pushing…" : "Push"}
+          </button>
+        </div>
+      )}
+
+      {pushResult && (
+        <p className={`text-xs px-3 py-2 rounded-lg border mb-4 font-mono break-words ${pushResult.success ? "bg-green-50 border-green-200 text-green-800" : "bg-red-50 border-red-200 text-red-700"}`}>
+          {pushResult.message}
+        </p>
       )}
 
       {/* File Status / Assigned To / File Progression — moved up top to free room below */}

@@ -27,6 +27,7 @@ class IntegrationCreate(BaseModel):
     headers: dict = {}
     field_mapping: dict = {}
     description: str = ""
+    payload_style: str = "wrapped"
 
 
 class IntegrationUpdate(BaseModel):
@@ -39,6 +40,7 @@ class IntegrationUpdate(BaseModel):
     field_mapping: Optional[dict] = None
     description: Optional[str] = None
     active: Optional[bool] = None
+    payload_style: Optional[str] = None
 
 
 class PushRequest(BaseModel):
@@ -114,6 +116,7 @@ async def create_intg(body: IntegrationCreate):
             body.name, body.type, body.endpoint_url,
             body.auth_type, body.auth_token,
             body.headers, body.field_mapping, body.description,
+            body.payload_style,
         )
         return {"success": True, "data": intg, "error": None}
     except Exception as e:
@@ -136,12 +139,24 @@ async def delete_intg(integration_id: str):
     return {"success": True, "data": {"deleted": integration_id}, "error": None}
 
 
+_DUMMY_VALUE_BY_TYPE = {"Date": "2024-01-01", "Number": "1", "Currency": "1.00", "Boolean": "true"}
+
+
 @router.post("/export/integrations/{integration_id}/test")
 async def test_intg(integration_id: str):
     intg = get_integration(integration_id)
     if not intg:
         return {"success": False, "data": None, "error": "Integration not found"}
-    # Push a single dummy record to test connectivity
+    # Push a single dummy record to test connectivity. Include a placeholder
+    # for every mapped source field (typed appropriately) so an endpoint with
+    # required parameters — like a Bubble.io API workflow — can actually
+    # succeed here instead of failing on missing fields every time regardless
+    # of whether the real connection/auth/URL are fine.
+    dummy_fields = {"test_field": "hello"}
+    for source, mapping in (intg.get("field_mapping") or {}).items():
+        data_type = mapping.get("type", "Text") if isinstance(mapping, dict) else "Text"
+        dummy_fields[source] = _DUMMY_VALUE_BY_TYPE.get(data_type, "test")
+
     dummy = [{
         "id": "test-id",
         "filename": "test.pdf",
@@ -150,7 +165,7 @@ async def test_intg(integration_id: str):
         "uploaded_at": "2024-01-01T00:00:00",
         "extracted_at": None,
         "page_count": 1,
-        "pages": [{"fields": {"test_field": "hello"}, "table_rows": [], "applied_conditions": [], "text_preview": ""}],
+        "pages": [{"fields": dummy_fields, "table_rows": [], "applied_conditions": [], "text_preview": ""}],
     }]
     result = await push_to_integration(intg, dummy)
     return {"success": result["success"], "data": result, "error": None if result["success"] else result["response_body"]}

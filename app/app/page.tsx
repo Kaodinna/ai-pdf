@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { uploadPdf, suggestTemplate, globalSearch, getMe, logout as apiLogout, setUnauthorizedHandler } from "@/lib/api";
 import type { UploadResult, GlobalSearchResult, AuthUser } from "@/lib/api";
 import LoginPage from "@/components/LoginPage";
+import LandingPage from "@/components/LandingPage";
 import UserManager from "@/components/UserManager";
 import FileUploadZone from "@/components/FileUploadZone";
 import SplitPanel from "@/components/SplitPanel";
@@ -704,6 +705,10 @@ function AppShell({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
 export default function Home() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [checking, setChecking] = useState(true);
+  // Shown once per browser session before the login form — a logout or an
+  // expired session (onUnauthorized) should drop straight back to LoginPage,
+  // not the landing page again, so this only ever flips true -> false.
+  const [showLanding, setShowLanding] = useState(true);
 
   useEffect(() => {
     getMe().then((res) => {
@@ -724,6 +729,9 @@ export default function Home() {
   }
 
   if (!user) {
+    if (showLanding) {
+      return <LandingPage onSignIn={() => setShowLanding(false)} />;
+    }
     return <LoginPage onLoggedIn={setUser} />;
   }
 

@@ -5,9 +5,14 @@ import {
   getFileRecords, getIntegrations, createIntegration, updateIntegration,
   deleteIntegration, testIntegration, pushToIntegration, exportFiles,
 } from "@/lib/api";
-import type { FileRecord, Integration } from "@/lib/api";
+import type { FieldMapping, FileRecord, Integration } from "@/lib/api";
 
 type Tab = "export" | "integrations";
+
+// Mirrors the template field data types (TemplatesPanel.tsx) so a mapped
+// field can be cast to what the receiving API expects instead of always
+// going out as whatever string the extractor produced.
+const MAPPING_TYPES: FieldMapping["type"][] = ["Text", "Date", "Number", "Currency", "Boolean"];
 
 const INTEGRATION_TYPES = [
   { value: "webhook", label: "Generic Webhook" },
@@ -49,11 +54,18 @@ function IntegrationModal({
   const [authType, setAuthType] = useState<Integration["auth_type"]>(initial?.auth_type ?? "none");
   const [authToken, setAuthToken] = useState(initial?.auth_token ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
+  const [payloadStyle, setPayloadStyle] = useState<Integration["payload_style"]>(initial?.payload_style ?? "wrapped");
   const [headersRaw, setHeadersRaw] = useState(
     Object.entries(initial?.headers ?? {}).map(([k, v]) => `${k}: ${v}`).join("\n")
   );
-  const [mappingRows, setMappingRows] = useState<Array<[string, string]>>(
-    Object.entries(initial?.field_mapping ?? {})
+  const [mappingRows, setMappingRows] = useState<Array<{ source: string; target: string; type: FieldMapping["type"] }>>(
+    Object.entries(initial?.field_mapping ?? {}).flatMap(([source, m]) =>
+      (Array.isArray(m) ? m : [m]).map((entry) =>
+        typeof entry === "string"
+          ? { source, target: entry, type: "Text" as const }
+          : { source, target: entry.target, type: entry.type }
+      )
+    )
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -72,10 +84,24 @@ function IntegrationModal({
     if (!name.trim()) { setError("Name is required"); return; }
     if (!endpointUrl.trim()) { setError("Endpoint URL is required"); return; }
     setSaving(true);
+    // Group by source field — a field mapped more than once (e.g. one "date"
+    // field feeding both etd_sin and eta_sin) is stored as an array so every
+    // row survives, instead of the later row silently overwriting the earlier
+    // one under the same key.
+    const grouped: Record<string, FieldMapping | FieldMapping[]> = {};
+    for (const r of mappingRows) {
+      if (!r.source.trim()) continue;
+      const entry: FieldMapping = { target: r.target, type: r.type };
+      const existing = grouped[r.source];
+      if (existing === undefined) grouped[r.source] = entry;
+      else if (Array.isArray(existing)) existing.push(entry);
+      else grouped[r.source] = [existing, entry];
+    }
     const payload = {
       name, type, endpoint_url: endpointUrl, auth_type: authType,
       auth_token: authToken, headers: parseHeaders(), description,
-      field_mapping: Object.fromEntries(mappingRows.filter(([k]) => k.trim())),
+      field_mapping: grouped,
+      payload_style: payloadStyle,
     };
     const res = initial
       ? await updateIntegration(initial.id, payload)
@@ -137,6 +163,18 @@ function IntegrationModal({
                   className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 ring-blue-400 font-mono" />
               </div>
               <div>
+                <label className="text-xs font-medium text-gray-600 block mb-1">Payload format</label>
+                <select value={payloadStyle} onChange={(e) => setPayloadStyle(e.target.value as Integration["payload_style"])}
+                  className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 ring-blue-400 bg-white">
+                  <option value="wrapped">Wrapped — {"{ source, pushed_at, records: [...] }"} in one request</option>
+                  <option value="flat">Flat — mapped fields as the top-level body, one request per record</option>
+                </select>
+                <p className="text-[10px] text-gray-400 mt-1">
+                  Use Flat for endpoints (e.g. a Bubble.io API workflow) that expect their own
+                  parameters at the top level instead of nested under a batch envelope.
+                </p>
+              </div>
+              <div>
                 <label className="text-xs font-medium text-gray-600 block mb-1">Description</label>
                 <input value={description} onChange={(e) => setDescription(e.target.value)}
                   className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 ring-blue-400" />
@@ -181,18 +219,29 @@ function IntegrationModal({
           {activeSection === "mapping" && (
             <div className="space-y-3">
               <p className="text-xs text-gray-500">
-                Rename fields in the outgoing payload. Leave empty to use original field names.
+                Rename fields and set their data type for the outgoing payload — an extracted value is
+                cast to that type (e.g. "897.272 LB" → the number 897.272) instead of always going out
+                as a string. Leave the target name empty to keep the field's own name and only cast it.
+                Add the same source field twice with different targets to send it to more than one key
+                (e.g. one "Date" field feeding both etd_sin and eta_sin).
               </p>
               <div className="space-y-2">
-                {mappingRows.map(([src, dst], i) => (
+                {mappingRows.map((row, i) => (
                   <div key={i} className="flex items-center gap-2">
-                    <input value={src} onChange={(e) => setMappingRows((p) => p.map((r, j) => j === i ? [e.target.value, r[1]] : r))}
+                    <input value={row.source}
+                      onChange={(e) => setMappingRows((p) => p.map((r, j) => j === i ? { ...r, source: e.target.value } : r))}
                       placeholder="Source field" className="flex-1 text-xs border rounded px-2 py-1.5 outline-none focus:ring-1 ring-blue-400" />
                     <svg className="w-4 h-4 text-gray-300 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
                     </svg>
-                    <input value={dst} onChange={(e) => setMappingRows((p) => p.map((r, j) => j === i ? [r[0], e.target.value] : r))}
-                      placeholder="Target field" className="flex-1 text-xs border rounded px-2 py-1.5 outline-none focus:ring-1 ring-blue-400" />
+                    <input value={row.target}
+                      onChange={(e) => setMappingRows((p) => p.map((r, j) => j === i ? { ...r, target: e.target.value } : r))}
+                      placeholder="Target field (optional)" className="flex-1 text-xs border rounded px-2 py-1.5 outline-none focus:ring-1 ring-blue-400" />
+                    <select value={row.type}
+                      onChange={(e) => setMappingRows((p) => p.map((r, j) => j === i ? { ...r, type: e.target.value as FieldMapping["type"] } : r))}
+                      className="text-xs border rounded px-2 py-1.5 bg-white outline-none focus:ring-1 ring-blue-400 flex-shrink-0">
+                      {MAPPING_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                    </select>
                     <button onClick={() => setMappingRows((p) => p.filter((_, j) => j !== i))}
                       className="text-gray-300 hover:text-red-500 flex-shrink-0">
                       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -202,7 +251,7 @@ function IntegrationModal({
                   </div>
                 ))}
               </div>
-              <button onClick={() => setMappingRows((p) => [...p, ["", ""]])}
+              <button onClick={() => setMappingRows((p) => [...p, { source: "", target: "", type: "Text" }])}
                 className="text-xs text-blue-600 border border-dashed border-blue-300 rounded px-3 py-1.5 hover:bg-blue-50 transition-colors">
                 + Add mapping
               </button>

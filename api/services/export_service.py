@@ -1,6 +1,7 @@
 import csv
 import io
 import json
+import re
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -9,6 +10,62 @@ from typing import Any
 DATA_DIR = Path(__file__).parent.parent / "data"
 DATA_DIR.mkdir(exist_ok=True)
 INTEGRATIONS_FILE = DATA_DIR / "integrations.json"
+
+# Mirrors the template field data types (services/template_service.py) so a
+# mapped field can be cast to what the receiving API actually expects instead
+# of always going out as whatever string the extractor produced.
+_NUMBER_RE = re.compile(r"-?\d[\d,]*\.?\d*")
+_DATE_FORMATS = (
+    "%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f",
+    "%d/%m/%Y %H:%M:%S", "%m/%d/%Y %H:%M:%S",
+    "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y", "%m-%d-%Y",
+    "%d-%B-%Y", "%d %B %Y", "%B %d, %Y", "%B %d %Y",
+    "%d-%b-%Y", "%d %b %Y", "%b %d, %Y", "%b %d %Y",
+)
+_TRUE_WORDS = {"yes", "true", "1", "y", "approved", "checked"}
+_FALSE_WORDS = {"no", "false", "0", "n", "rejected", "unchecked"}
+
+
+def _coerce_value(value: Any, data_type: str) -> Any:
+    """Best-effort cast of an extracted (usually string) value to the type a
+    receiving API expects. Never raises and never drops data — a value that
+    can't be confidently parsed is passed through unchanged rather than
+    nulled, since a wrong guess is worse than a string the other side can
+    parse itself."""
+    if value is None or data_type not in ("Number", "Currency", "Date", "Boolean"):
+        return value
+    text = str(value).strip()
+    if not text:
+        return value
+
+    if data_type in ("Number", "Currency"):
+        match = _NUMBER_RE.search(text.replace(",", ""))
+        if not match:
+            return value
+        try:
+            num = float(match.group())
+        except ValueError:
+            return value
+        return int(num) if num.is_integer() else num
+
+    if data_type == "Date":
+        first_line = text.splitlines()[0].strip()
+        for fmt in _DATE_FORMATS:
+            try:
+                return datetime.strptime(first_line, fmt).date().isoformat()
+            except ValueError:
+                continue
+        return value
+
+    if data_type == "Boolean":
+        lowered = text.lower()
+        if lowered in _TRUE_WORDS:
+            return True
+        if lowered in _FALSE_WORDS:
+            return False
+        return value
+
+    return value
 
 
 # ─── Integration CRUD ─────────────────────────────────────────────────────
@@ -40,6 +97,7 @@ def create_integration(
     headers: dict | None = None,
     field_mapping: dict | None = None,
     description: str = "",
+    payload_style: str = "wrapped",
 ) -> dict:
     integrations = _load_integrations()
     integration = {
@@ -52,6 +110,11 @@ def create_integration(
         "headers": headers or {},
         "field_mapping": field_mapping or {},
         "description": description,
+        # "wrapped" (default): {source, pushed_at, record_count, records: [...]}
+        # in one request. "flat": the mapped fields alone as the top-level
+        # JSON body, one request per record — for backends (e.g. a Bubble.io
+        # API workflow) that expect their own parameters at the top level.
+        "payload_style": payload_style if payload_style in ("wrapped", "flat") else "wrapped",
         "active": True,
         "last_pushed_at": None,
         "created_at": datetime.utcnow().isoformat(),
@@ -104,9 +167,37 @@ def _flatten_record(record: dict, fields: list[str] | None = None) -> dict:
 
 
 def _apply_mapping(flat: dict, field_mapping: dict) -> dict:
+    """Rename and/or type-cast fields for the outgoing payload. Each mapping
+    entry is {"target": str, "type": str}; a plain string is also accepted
+    (older integrations saved before per-field types existed) and treated as
+    a rename with no casting. An empty target keeps the field's own name —
+    letting a field's type be set without renaming it. A list of entries
+    fans one extracted field out to several target keys — e.g. a single
+    "date" field feeding both etd_sin and eta_sin — each cast independently.
+
+    A field the extractor found no value for is omitted entirely rather than
+    sent as a literal JSON null — many APIs (a Bubble.io workflow among them)
+    reject a present-but-null value for an optional parameter even though
+    leaving the key out entirely is accepted."""
     if not field_mapping:
-        return flat
-    return {field_mapping.get(k, k): v for k, v in flat.items()}
+        return {k: v for k, v in flat.items() if v is not None}
+    result: dict[str, Any] = {}
+    for k, v in flat.items():
+        if v is None:
+            continue
+        mapping = field_mapping.get(k)
+        if mapping is None:
+            result[k] = v
+            continue
+        entries = mapping if isinstance(mapping, list) else [mapping]
+        for entry in entries:
+            if isinstance(entry, str):
+                target, data_type = entry, "Text"
+            else:
+                target = entry.get("target") or ""
+                data_type = entry.get("type") or "Text"
+            result[target or k] = _coerce_value(v, data_type)
+    return result
 
 
 # ─── CSV export ────────────────────────────────────────────────────────────
@@ -176,17 +267,7 @@ def export_json_data(records: list[dict], fields: list[str] | None = None) -> by
 
 # ─── Webhook push ─────────────────────────────────────────────────────────
 
-async def push_to_integration(integration: dict, records: list[dict]) -> dict:
-    import httpx
-
-    rows = [_apply_mapping(_flatten_record(r), integration.get("field_mapping", {})) for r in records]
-    payload = {
-        "source": "mely_ai_pdf_studio",
-        "pushed_at": datetime.utcnow().isoformat(),
-        "record_count": len(rows),
-        "records": rows,
-    }
-
+def _auth_headers(integration: dict) -> dict:
     headers = dict(integration.get("headers", {}))
     auth_type = integration.get("auth_type", "none")
     auth_token = integration.get("auth_token", "")
@@ -200,16 +281,49 @@ async def push_to_integration(integration: dict, records: list[dict]) -> dict:
         headers["Authorization"] = "Basic " + base64.b64encode(auth_token.encode()).decode()
 
     headers.setdefault("Content-Type", "application/json")
+    return headers
+
+
+async def push_to_integration(integration: dict, records: list[dict]) -> dict:
+    import httpx
+
+    rows = [_apply_mapping(_flatten_record(r), integration.get("field_mapping", {})) for r in records]
+    headers = _auth_headers(integration)
+    flat = integration.get("payload_style") == "flat"
 
     try:
         async with httpx.AsyncClient(timeout=15) as client:
-            response = await client.post(integration["endpoint_url"], json=payload, headers=headers)
-        result = {
-            "success": response.status_code < 400,
-            "status_code": response.status_code,
-            "response_body": response.text[:500],
-            "records_pushed": len(rows),
-        }
+            if flat:
+                # Some backends (e.g. a Bubble.io API workflow, or any single-
+                # record REST endpoint) expect their parameters as the
+                # top-level JSON body, not nested under a batch envelope —
+                # one request per record instead of one request for all of
+                # them.
+                responses = [await client.post(integration["endpoint_url"], json=row, headers=headers) for row in rows]
+                failures = [r for r in responses if r.status_code >= 400]
+                result = {
+                    "success": len(failures) == 0,
+                    "status_code": failures[0].status_code if failures else (responses[0].status_code if responses else None),
+                    "response_body": (
+                        f"{len(responses) - len(failures)}/{len(responses)} succeeded"
+                        + (f" — first failure: {failures[0].text[:400]}" if failures else "")
+                    ),
+                    "records_pushed": len(responses) - len(failures),
+                }
+            else:
+                payload = {
+                    "source": "mely_ai_pdf_studio",
+                    "pushed_at": datetime.utcnow().isoformat(),
+                    "record_count": len(rows),
+                    "records": rows,
+                }
+                response = await client.post(integration["endpoint_url"], json=payload, headers=headers)
+                result = {
+                    "success": response.status_code < 400,
+                    "status_code": response.status_code,
+                    "response_body": response.text[:500],
+                    "records_pushed": len(rows),
+                }
     except Exception as e:
         result = {"success": False, "status_code": None, "response_body": str(e), "records_pushed": 0}
 
