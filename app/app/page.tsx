@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { uploadPdf, suggestTemplate, globalSearch, getMe, logout as apiLogout, setUnauthorizedHandler } from "@/lib/api";
-import type { UploadResult, GlobalSearchResult, AuthUser } from "@/lib/api";
+import { uploadPdf, suggestTemplate, getMe, logout as apiLogout, setUnauthorizedHandler } from "@/lib/api";
+import type { UploadResult, AuthUser } from "@/lib/api";
 import LoginPage from "@/components/LoginPage";
 import LandingPage from "@/components/LandingPage";
 import UserManager from "@/components/UserManager";
@@ -358,94 +358,6 @@ function UploadCard({
   );
 }
 
-// ── Global search ──────────────────────────────────────────────────────────
-
-function GlobalSearch({
-  onOpenFile,
-  onOpenInbox,
-}: {
-  onOpenFile: (fileId: string) => void;
-  onOpenInbox: (subject: string) => void;
-}) {
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<GlobalSearchResult | null>(null);
-  const [open, setOpen] = useState(false);
-  const [searching, setSearching] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const onClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onClick);
-    return () => document.removeEventListener("mousedown", onClick);
-  }, []);
-
-  useEffect(() => {
-    if (!query.trim()) { setResults(null); return; }
-    setSearching(true);
-    const handle = setTimeout(async () => {
-      const res = await globalSearch(query.trim());
-      if (res.success && res.data) setResults(res.data);
-      setSearching(false);
-    }, 250);
-    return () => clearTimeout(handle);
-  }, [query]);
-
-  const hasResults = results && (results.files.length > 0 || results.inbox.length > 0);
-
-  return (
-    <div className="relative w-64 flex-shrink-0" ref={ref}>
-      <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-      </svg>
-      <input
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        onFocus={() => setOpen(true)}
-        placeholder="Search files, inbox…"
-        className="w-full pl-9 pr-3 py-2 text-sm border border-[#ECECEC] rounded-xl outline-none focus:ring-2 ring-blue-400 bg-white"
-      />
-      {open && query.trim() && (
-        <div className="absolute left-0 right-0 mt-2 bg-white rounded-xl border border-[#ECECEC] shadow-lg py-1.5 z-50 max-h-80 overflow-y-auto">
-          {searching ? (
-            <p className="px-3.5 py-3 text-xs text-gray-400">Searching…</p>
-          ) : !hasResults ? (
-            <p className="px-3.5 py-3 text-xs text-gray-400">No matches.</p>
-          ) : (
-            <>
-              {results!.files.length > 0 && (
-                <div>
-                  <p className="px-3.5 pt-1.5 pb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Files</p>
-                  {results!.files.map((f) => (
-                    <button key={f.id} onClick={() => { onOpenFile(f.id); setOpen(false); setQuery(""); }}
-                      className="w-full flex flex-col items-start px-3.5 py-2 text-left hover:bg-gray-50 transition-colors">
-                      <span className="text-sm text-gray-800 truncate w-full">{f.filename}</span>
-                      {f.template_name && <span className="text-xs text-gray-400">{f.template_name}</span>}
-                    </button>
-                  ))}
-                </div>
-              )}
-              {results!.inbox.length > 0 && (
-                <div>
-                  <p className="px-3.5 pt-1.5 pb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Smart Inbox</p>
-                  {results!.inbox.map((r) => (
-                    <button key={r.id} onClick={() => { onOpenInbox(r.subject); setOpen(false); setQuery(""); }}
-                      className="w-full flex flex-col items-start px-3.5 py-2 text-left hover:bg-gray-50 transition-colors">
-                      <span className="text-sm text-gray-800 truncate w-full">{r.subject}</span>
-                      <span className="text-xs text-gray-400 truncate w-full">{r.from}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── User menu ────────────────────────────────────────────────────────────
 
 function UserMenu({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
@@ -503,7 +415,6 @@ function AppShell({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
   const [tab, setTab] = useState<Tab>("files");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [focusFileIds, setFocusFileIds] = useState<string[] | null>(null);
-  const [inboxSearch, setInboxSearch] = useState<string | undefined>(undefined);
 
   const handleFile = async (files: File[]) => {
     const f = files[0];
@@ -619,11 +530,6 @@ function AppShell({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
             </p>
           </div>
 
-          <GlobalSearch
-            onOpenFile={(fileId) => { setTab("files"); setFocusFileIds([fileId]); }}
-            onOpenInbox={(subject) => { setTab("inbox"); setInboxSearch(subject); }}
-          />
-
           {/* Upload zone — compact in header. Only shown on the Files tab —
               every other tab now has its own dedicated uploader, so there's
               only ever one obvious place to drop a file for any given task. */}
@@ -659,7 +565,6 @@ function AppShell({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
               {tab === "inbox" && (
                 <SmartInbox
                   onOpenFiles={(fileIds) => { setTab("files"); setFocusFileIds(fileIds); }}
-                  initialSearch={inboxSearch}
                 />
               )}
               {tab === "files" && (

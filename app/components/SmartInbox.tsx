@@ -36,6 +36,7 @@ export default function SmartInbox({
   const [loading, setLoading] = useState(true);
   const [polling, setPolling] = useState(false);
   const [pollMessage, setPollMessage] = useState<string | null>(null);
+  const [pollErrors, setPollErrors] = useState<string[]>([]);
   const [showArchived, setShowArchived] = useState(false);
   const [search, setSearch] = useState(initialSearch ?? "");
   const [showMailboxManager, setShowMailboxManager] = useState(false);
@@ -55,18 +56,24 @@ export default function SmartInbox({
   const handleCheckMail = async () => {
     setPolling(true);
     setPollMessage(null);
+    setPollErrors([]);
     const res = await pollInbox();
     setPolling(false);
     if (!res.success || !res.data) {
       setPollMessage(res.error ?? "Check failed");
       return;
     }
+    // Per-mailbox failures (bad credentials, connection issues, etc.) come
+    // back as a warning list inside an otherwise-"successful" response —
+    // show them, don't let a 0-ingested count read as "no new mail" and
+    // hide a mailbox that's actually broken.
+    setPollErrors(res.data.errors);
     if (res.data.first_run) {
       setPollMessage("Connected — starting from today's mail onward.");
-    } else if (res.data.ingested === 0) {
-      setPollMessage("No new mail.");
-    } else {
+    } else if (res.data.ingested > 0) {
       setPollMessage(`${res.data.ingested} new email(s), ${res.data.new_files} file(s) added.`);
+    } else if (res.data.errors.length === 0) {
+      setPollMessage("No new mail.");
     }
     load();
   };
@@ -150,6 +157,19 @@ export default function SmartInbox({
           </button>
         </div>
       </div>
+
+      {pollErrors.length > 0 && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+          <p className="text-xs font-semibold text-red-700 mb-1">
+            {pollErrors.length === 1 ? "A mailbox failed to check:" : `${pollErrors.length} mailboxes failed to check:`}
+          </p>
+          <ul className="space-y-0.5">
+            {pollErrors.map((e, i) => (
+              <li key={i} className="text-xs text-red-600 break-words">{e}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="border rounded-xl overflow-hidden bg-white">
         <table className="w-full text-sm">

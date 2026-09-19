@@ -1336,7 +1336,7 @@ export async function deleteMailbox(id: string) {
 }
 
 export async function pollInbox() {
-  return apiFetch<{ checked: number; ingested: number; new_files: number; first_run: boolean }>("/inbox/poll", {
+  return apiFetch<{ checked: number; ingested: number; new_files: number; first_run: boolean; errors: string[] }>("/inbox/poll", {
     method: "POST",
   });
 }
@@ -1357,11 +1357,3 @@ export async function assignInboxRecord(id: string, assigned_to: string | null) 
   });
 }
 
-export interface GlobalSearchResult {
-  files: Array<{ id: string; filename: string; template_name: string | null }>;
-  inbox: Array<{ id: string; subject: string; from: string }>;
-}
-
-export async function globalSearch(q: string) {
-  return apiFetch<GlobalSearchResult>(`/search?q=${encodeURIComponent(q)}`);
-}

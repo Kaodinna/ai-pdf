@@ -22,25 +22,6 @@ function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
-// ─── Circular progress ring ────────────────────────────────────────────────
-
-function ProgressRing({ pct }: { pct: number }) {
-  const r = 28;
-  const circ = 2 * Math.PI * r;
-  const dash = (pct / 100) * circ;
-  return (
-    <div className="relative w-20 h-20 flex items-center justify-center">
-      <svg className="w-20 h-20 -rotate-90" viewBox="0 0 72 72">
-        <circle cx="36" cy="36" r={r} fill="none" stroke="#e5e7eb" strokeWidth="6" />
-        <circle cx="36" cy="36" r={r} fill="none" stroke="#2563eb" strokeWidth="6"
-          strokeDasharray={`${dash} ${circ}`} strokeLinecap="round"
-          style={{ transition: "stroke-dasharray 0.5s ease" }} />
-      </svg>
-      <span className="absolute text-sm font-bold text-blue-700">{Math.round(pct)}</span>
-    </div>
-  );
-}
-
 // ─── Refine with AI modal ──────────────────────────────────────────────────
 
 function RefineModal({
@@ -361,6 +342,9 @@ function FieldCard({
   hasPosition,
   isActive,
   onHighlight,
+  isEditing,
+  onStartEdit,
+  onStopEdit,
 }: {
   fieldKey: string;
   value: string | null;
@@ -371,8 +355,11 @@ function FieldCard({
   hasPosition?: boolean;
   isActive?: boolean;
   onHighlight?: (key: string | null) => void;
+  isEditing: boolean;
+  onStartEdit: () => void;
+  onStopEdit: () => void;
 }) {
-  const [editing, setEditing] = useState(false);
+  const editing = isEditing;
   const [draft, setDraft] = useState(value ?? "");
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
@@ -380,22 +367,26 @@ function FieldCard({
 
   useEffect(() => { if (editing) inputRef.current?.focus(); }, [editing]);
 
+  // Another field taking over edit mode counts as cancelling this one — reset the draft
+  // so a stale, unsaved edit doesn't reappear next time this card is opened.
+  useEffect(() => { if (!editing) { setDraft(value ?? ""); setReason(""); } }, [editing]);
+
   const isCorrection = !!meta && draft !== (value ?? "");
 
   const commit = async () => {
     setSaving(true);
     await onSave(fieldKey, draft || null, isCorrection ? reason.trim() || undefined : undefined);
     setSaving(false);
-    setEditing(false);
+    onStopEdit();
     setReason("");
   };
 
-  const cancel = () => { setDraft(value ?? ""); setReason(""); setEditing(false); };
+  const cancel = () => { setDraft(value ?? ""); setReason(""); onStopEdit(); };
 
   return (
     <div className={`group relative bg-gray-50 rounded-lg border-l-2 px-3 py-2.5 transition-all
       ${editing ? "border-blue-500 bg-blue-50/40 ring-1 ring-blue-200" : isActive ? "border-amber-400 bg-amber-50/50 ring-1 ring-amber-200" : "border-gray-300 hover:border-blue-300"}`}>
-      <div className="flex items-center gap-1.5 mb-1 pr-10">
+      <div className="flex items-center gap-1.5 mb-1 pr-20">
         {meta && <DecisionDot status={meta.status} />}
         {hasPosition && onHighlight ? (
           <button type="button"
@@ -435,7 +426,7 @@ function FieldCard({
       )}
       {!editing && (
         <p className={`text-sm font-medium truncate cursor-text ${value ? "text-gray-900" : "text-gray-300 italic"}`}
-          onClick={() => setEditing(true)}>
+          onClick={onStartEdit}>
           {value ?? "—"}
         </p>
       )}
@@ -462,7 +453,7 @@ function FieldCard({
               </button>
             </>
           )}
-          <button onClick={() => setEditing(true)} title="Edit"
+          <button onClick={onStartEdit} title="Edit"
             className="text-gray-300 hover:text-blue-600 transition-colors">
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -573,6 +564,7 @@ function FileDetailView({
   const [activeField, setActiveField] = useState<string | null>(null);
   const [activePageIdx, setActivePageIdx] = useState(0);
   const [showOriginal, setShowOriginal] = useState(true);
+  const [editingField, setEditingField] = useState<string | null>(null);
 
   const [integrations, setIntegrations] = useState<Integration[]>([]);
   const [pushTargetId, setPushTargetId] = useState("");
@@ -605,8 +597,6 @@ function FileDetailView({
 
   const currentStatus = record.status;
   const currentIdx = workflowStates.findIndex((s) => s.name === currentStatus);
-  const progressPct = workflowStates.length > 0 ? ((currentIdx + 1) / workflowStates.length) * 100 : 0;
-
   // Aggregate all fields (first non-null wins across pages), remembering which
   // page each field's highlight position lives on so clicking a field jumps
   // the viewer to the right page.
@@ -799,8 +789,8 @@ function FileDetailView({
         </p>
       )}
 
-      {/* File Status / Assigned To / File Progression — moved up top to free room below */}
-      <div className="grid grid-cols-3 gap-4 mb-4">
+      {/* File Status / Assigned To — moved up top to free room below */}
+      <div className="grid grid-cols-2 gap-4 mb-4">
         <div className="border rounded-xl p-3 bg-white">
           <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">File Status</h4>
           {workflowStates.length === 0 ? (
@@ -847,14 +837,6 @@ function FileDetailView({
             className="w-full text-xs border rounded px-2 py-1.5 outline-none focus:ring-1 ring-blue-400"
           />
           {savingAssign && <p className="text-[10px] text-gray-400 mt-1">Saving…</p>}
-        </div>
-
-        <div className="border rounded-xl p-3 bg-white flex items-center gap-3">
-          <ProgressRing pct={progressPct} />
-          <div>
-            <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">File Progression</h4>
-            <p className="text-xs text-gray-500">{currentIdx + 1} of {workflowStates.length} states</p>
-          </div>
         </div>
       </div>
 
@@ -934,7 +916,10 @@ function FileDetailView({
                         onHighlight={(k) => {
                           setActiveField(k);
                           if (k && fieldPageIdx[k] !== undefined) setActivePageIdx(fieldPageIdx[k]);
-                        }} />
+                        }}
+                        isEditing={editingField === key}
+                        onStartEdit={() => setEditingField(key)}
+                        onStopEdit={() => setEditingField((cur) => (cur === key ? null : cur))} />
                     ))}
                   </div>
                 )}
@@ -1081,6 +1066,7 @@ export default function FileDashboard({
   const [bulkWorking, setBulkWorking] = useState(false);
   const [listFilterIds, setListFilterIds] = useState<string[] | null>(null);
   const [templateFilter, setTemplateFilter] = useState(""); // "" = none picked yet (empty state), "all" = every file
+  const [contentSearch, setContentSearch] = useState("");
 
   useEffect(() => { loadAll(); }, []);
 
@@ -1191,14 +1177,27 @@ export default function FileDashboard({
   const approvedCount = stateCounts["Approved"] ?? 0;
   const rejectedCount = stateCounts["Rejected"] ?? 0;
   const newCount = stateCounts["New"] ?? 0;
-  const displayedRecords = listFilterIds
+  const trimmedSearch = contentSearch.trim().toLowerCase();
+  const matchesSearch = (r: FileRecord) => {
+    if (!trimmedSearch) return true;
+    if (r.filename.toLowerCase().includes(trimmedSearch)) return true;
+    return r.pages.some((p) =>
+      Object.values(p.fields).some((v) => v != null && String(v).toLowerCase().includes(trimmedSearch))
+    );
+  };
+  // A search query on its own is enough to search across every file — no
+  // need to also pick a template first, same as choosing "All templates".
+  const baseRecords = listFilterIds
     ? records.filter((r) => listFilterIds.includes(r.id))
     : templateFilter === "all"
       ? records
       : templateFilter
         ? records.filter((r) => r.template_id === templateFilter)
-        : [];
-  const noFilterChosen = !listFilterIds && !templateFilter;
+        : trimmedSearch
+          ? records
+          : [];
+  const displayedRecords = trimmedSearch ? baseRecords.filter(matchesSearch) : baseRecords;
+  const noFilterChosen = !listFilterIds && !templateFilter && !trimmedSearch;
 
   return (
     <div className="space-y-5">
@@ -1213,6 +1212,17 @@ export default function FileDashboard({
         <div className="flex items-center justify-between px-4 py-3 border-b bg-gray-50">
           <h3 className="text-sm font-semibold text-gray-700">Processed Files</h3>
           <div className="flex items-center gap-3">
+            <div className="relative">
+              <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input
+                value={contentSearch}
+                onChange={(e) => setContentSearch(e.target.value)}
+                placeholder="Search extracted data…"
+                title="Searches values inside extracted fields, e.g. a vessel name or reference number — not just the filename"
+                className="pl-8 pr-2.5 py-1.5 text-xs border rounded-lg outline-none focus:ring-1 ring-blue-400 bg-white w-56" />
+            </div>
             <select
               value={templateFilter}
               onChange={(e) => { setTemplateFilter(e.target.value); setListFilterIds(null); setCheckedIds(new Set()); }}
@@ -1284,8 +1294,12 @@ export default function FileDashboard({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                 d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
-            <p className="text-sm">No files match this template yet.</p>
-            <p className="text-xs mt-1">Files show up here once extracted or ingested with this template.</p>
+            <p className="text-sm">{trimmedSearch ? "No files match that search." : "No files match this template yet."}</p>
+            <p className="text-xs mt-1">
+              {trimmedSearch
+                ? "Searches the filename and every extracted field value, not just the file name."
+                : "Files show up here once extracted or ingested with this template."}
+            </p>
           </div>
         ) : (
           <table className="w-full text-sm">
@@ -1299,15 +1313,12 @@ export default function FileDashboard({
                 <th className="text-left px-3 py-3 font-medium">Template</th>
                 <th className="text-left px-3 py-3 font-medium">Pages</th>
                 <th className="text-left px-3 py-3 font-medium">Uploaded</th>
-                <th className="text-left px-3 py-3 font-medium">Status</th>
-                <th className="text-left px-3 py-3 font-medium">Progress</th>
+                <th className="text-left px-3 py-3 font-medium">File Status</th>
                 <th className="px-3 py-3" />
               </tr>
             </thead>
             <tbody>
               {displayedRecords.map((r) => {
-                const idx = workflowStates.findIndex((s) => s.name === r.status);
-                const pct = workflowStates.length > 0 ? Math.round(((idx + 1) / workflowStates.length) * 100) : 0;
                 return (
                   <tr key={r.id} onClick={() => setSelected(r)}
                     className="border-b last:border-0 hover:bg-blue-50/40 cursor-pointer transition-colors">
@@ -1339,19 +1350,13 @@ export default function FileDashboard({
                     <td className="px-3 py-3 text-gray-600 tabular-nums">{r.page_count}</td>
                     <td className="px-3 py-3 text-gray-500 text-xs whitespace-nowrap">{formatDate(r.uploaded_at)}</td>
                     <td className="px-3 py-3">
-                      <span className="text-xs rounded-full px-2.5 py-1 font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                      <span className={`text-sm font-medium ${
+                        r.status === "Rejected" ? "text-red-600"
+                        : r.status === "Approved" ? "text-green-600"
+                        : "text-gray-700"
+                      }`}>
                         {r.status}
                       </span>
-                    </td>
-                    <td className="px-3 py-3">
-                      {workflowStates.length > 0 && idx >= 0 ? (
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                            <div className="h-full bg-blue-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
-                          </div>
-                          <span className="text-xs text-gray-500 tabular-nums w-8 text-right">{pct}%</span>
-                        </div>
-                      ) : <span className="text-xs text-gray-300">—</span>}
                     </td>
                     <td className="px-3 py-3 text-right">
                       <button onClick={(e) => handleDelete(e, r.id)} disabled={deleting === r.id}

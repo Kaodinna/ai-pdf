@@ -7,8 +7,11 @@ Dashboard identically either way.
 
 Supports multiple mailboxes (one IMAP account per document type, managed via
 the /mailboxes API) — each polled independently, with its own last-seen-UID
-checkpoint. A mailbox tied to a template auto-tags every file it ingests with
-that template, so mail routed to "invoices@..." lands pre-sorted.
+checkpoint. A mailbox tied to a template auto-extracts every file it ingests
+against that template, so mail routed to "invoices@..." lands already read
+and pre-sorted, no manual "match a template" step needed. A mailbox with no
+template assigned still ingests the raw file for manual review, same as
+before.
 """
 
 import email
@@ -26,6 +29,7 @@ from services.file_record_service import create_file_record, update_file_record
 from services.inbox_service import create_inbox_record
 from services.audit_service import log_event
 from services.mailbox_config_service import list_mailboxes
+from services.extraction_service import run_template_extraction
 
 STATE_FILE = Path(__file__).parent.parent / "data" / "mailbox_state.json"
 STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -95,7 +99,22 @@ def _ingest_attachment(filename: str, content: bytes, template_id: str | None, t
     extract_text_per_page(path)
     create_file_record(file_id, filename, len(content), page_count)
     if template_id:
-        update_file_record(file_id, {"template_id": template_id, "template_name": template_name})
+        try:
+            # The mailbox this attachment arrived on is mapped to a template
+            # (e.g. billoflading@... -> "Bill of Lading") — extract right
+            # away so the file lands in File Dashboard already read, with a
+            # document preview and field data, instead of sitting as a bare
+            # upload waiting for someone to manually match/detect a template.
+            run_template_extraction(template_id, file_id)
+        except Exception as e:
+            # A bad match / transient AI failure shouldn't drop the email or
+            # the attachment — fall back to the old behavior: the file still
+            # lands in the dashboard, just untagged and unextracted, for
+            # manual review.
+            update_file_record(file_id, {"template_id": template_id, "template_name": template_name})
+            log_event("mailbox_auto_extract_failed", "file", file_id,
+                      entity_name=template_name or template_id,
+                      details={"reason": str(e)})
     return file_id, page_count
 
 

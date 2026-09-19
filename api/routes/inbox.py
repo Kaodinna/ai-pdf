@@ -1,6 +1,7 @@
 from typing import Optional
 
 from fastapi import APIRouter
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
 from services.inbox_service import list_inbox, get_inbox_record, update_inbox_record
@@ -47,7 +48,11 @@ async def inbox_config():
 @router.post("/inbox/poll")
 async def poll_inbox():
     try:
-        result = fetch_and_ingest()
+        # Now that each attachment can trigger a blocking Claude extraction
+        # call (see mailbox_service._ingest_attachment), a manual "Check
+        # Mail Now" can take many seconds — run it off the event loop so it
+        # doesn't stall every other in-flight request for the whole server.
+        result = await run_in_threadpool(fetch_and_ingest)
         return {"success": True, "data": result, "error": None}
     except RuntimeError as e:
         return {"success": False, "data": None, "error": str(e)}

@@ -33,7 +33,6 @@ from routes.settings import router as settings_router
 from routes.ai_memories import router as ai_memories_router
 from routes.document_types import router as document_types_router
 from routes.inbox import router as inbox_router
-from routes.search import router as search_router
 from routes.mailboxes import router as mailboxes_router
 from routes.auth import router as auth_router, SESSION_COOKIE
 from services.storage_service import OUTPUT_DIR
@@ -109,7 +108,6 @@ app.include_router(settings_router)
 app.include_router(ai_memories_router)
 app.include_router(document_types_router)
 app.include_router(inbox_router)
-app.include_router(search_router)
 app.include_router(mailboxes_router)
 
 
@@ -152,7 +150,14 @@ async def start_mailbox_polling():
         while True:
             if is_configured():
                 try:
-                    await loop.run_in_executor(None, fetch_and_ingest)
+                    result = await loop.run_in_executor(None, fetch_and_ingest)
+                    # fetch_and_ingest catches per-mailbox errors (bad
+                    # credentials, connection issues) and reports them in
+                    # result["errors"] instead of raising — without this,
+                    # a mailbox can fail silently on every single poll,
+                    # forever, with nothing in the logs to show for it.
+                    for err in result.get("errors", []):
+                        print(f"[mailbox poll] {err}")
                 except Exception as e:
                     print(f"[mailbox poll] failed: {e}")
             await asyncio.sleep(60)

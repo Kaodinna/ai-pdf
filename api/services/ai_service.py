@@ -83,6 +83,35 @@ def _render_page(pdf_path: Path, page_number: int) -> dict | None:
         return None
 
 
+def _ocr_page_words(page_image: dict) -> tuple[list[dict], float, float]:
+    """OCR a rendered page image with Tesseract to get word-level bounding
+    boxes — used only as a fallback for highlight positioning on pages with
+    no embedded PDF text layer (scanned documents), where pdfplumber's word
+    extraction has nothing to search. Coordinates are in image pixels; the
+    matching image width/height are returned alongside so callers can store
+    both together (the highlight overlay works in percentages of whatever
+    page_width/page_height is stored per-page, so the unit doesn't need to
+    match the PDF-point convention used elsewhere)."""
+    import base64
+    import io
+
+    from PIL import Image
+    import pytesseract
+
+    img = Image.open(io.BytesIO(base64.b64decode(page_image["base64"])))
+    width, height = img.size
+
+    data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT)
+    words: list[dict] = []
+    for i in range(len(data["text"])):
+        text = data["text"][i].strip()
+        if not text:
+            continue
+        x, y, w, h = data["left"][i], data["top"][i], data["width"][i], data["height"][i]
+        words.append({"text": text, "x0": x, "y0": y, "x1": x + w, "y1": y + h})
+    return words, float(width), float(height)
+
+
 def ai_plan_from_instruction(pdf_path: Path, instruction: str) -> dict:
     """
     Given a PDF and a natural language instruction, return a JSON plan:
@@ -831,6 +860,16 @@ def ai_extract_template_fields(
         words       = word_data["words"]
         page_width  = word_data["page_width"]
         page_height = word_data["page_height"]
+
+        # Scanned pages have no embedded text layer, so pdfplumber finds
+        # nothing to search — fall back to OCR so highlighting still works.
+        if not words and page_image:
+            try:
+                ocr_words, ocr_w, ocr_h = _ocr_page_words(page_image)
+                if ocr_words:
+                    words, page_width, page_height = ocr_words, ocr_w, ocr_h
+            except Exception:
+                pass
 
         # ── FIELDS: Claude fills in the fixed skeleton ────────────────────────
         fields, field_meta = _extract_fields_with_claude(

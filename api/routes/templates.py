@@ -7,14 +7,12 @@ from services.template_service import (
     list_templates, get_template, create_template, update_template, delete_template,
     copy_field_config_from, add_comment, list_comments, keyword_match_template,
 )
-from services.ai_service import ai_apply_template, ai_detect_doc_type, ai_extract_template_fields, ai_refine_extraction, ai_smart_extract
+from services.ai_service import ai_apply_template, ai_detect_doc_type, ai_refine_extraction, ai_smart_extract
 from services.pdf_service import validate_pdf, extract_selected_pages, extract_text_per_page
 from services.storage_service import storage
 from services.file_record_service import update_file_record, get_accessible_file_record
-from services.rule_service import list_rules
-from services.rule_engine import run_rules_on_file
 from services.audit_service import log_event
-from services.approval_settings_service import get_settings, all_fields_cleared, should_auto_reject
+from services.extraction_service import run_template_extraction
 
 router = APIRouter()
 
@@ -371,79 +369,14 @@ async def apply_template(template_id: str, body: ApplyTemplateRequest, request: 
 @router.post("/templates/{template_id}/extract-data")
 async def extract_template_data(template_id: str, body: ExtractDataRequest, request: Request):
     try:
-        template = get_template(template_id)
-        if not template:
-            return {"success": False, "data": None, "error": "Template not found"}
         if not get_accessible_file_record(body.file_id, request.state.user):
             return {"success": False, "data": None, "error": "File record not found"}
 
-        def _extract() -> dict:
-            path = storage.get_upload_path(body.file_id)
-            validate_pdf(path)
-            return ai_extract_template_fields(path, template, body.page_numbers)
-
-        # The Claude API call inside ai_extract_template_fields is a blocking
+        # The Claude API call inside run_template_extraction is a blocking
         # network request that can take many seconds — run it off the event
         # loop so it doesn't stall every other in-flight request.
-        result = await run_in_threadpool(_extract)
-        from datetime import datetime
-        # Persist the full extraction result, including field_positions — the
-        # file review screen highlights a field's location on the original
-        # document by looking it up here, so it has to survive a page reload.
-        slim_pages = result.get("pages", [])
-        file_updates = {
-            "template_id": template_id,
-            "template_name": template.get("name", ""),
-            "template_type": template.get("template_type", ""),
-            "extracted_at": datetime.utcnow().isoformat(),
-            "pages": slim_pages,
-        }
-
-        # Run on_extraction automation rules
-        on_extraction_rules = list_rules("on_extraction")
-        triggered = run_rules_on_file(on_extraction_rules, slim_pages)
-        for t in triggered:
-            file_updates.update(t.get("applied_updates", {}))
-        rule_names = [t["name"] for t in triggered]
-
-        doc_type = template.get("template_type")
-        auto_rejected = should_auto_reject([doc_type] if doc_type else [])
-        auto_approved = (
-            not auto_rejected
-            and get_settings().get("auto_approve_enabled", False)
-            and all_fields_cleared(slim_pages)
-        )
-        if auto_rejected:
-            file_updates["decision"] = "rejected"
-        elif auto_approved:
-            file_updates["decision"] = "approved"
-
-        update_file_record(body.file_id, file_updates)
-        log_event("extracted", "file", body.file_id,
-                  entity_name=template.get("name", ""),
-                  details={"template_id": template_id, "rules_triggered": rule_names,
-                           "pages": len(slim_pages)})
-        if auto_rejected:
-            log_event("auto_rejected", "file", body.file_id,
-                      entity_name=template.get("name", ""),
-                      details={"reason": "document type matched the auto-reject list", "document_type": doc_type})
-        elif auto_approved:
-            log_event("auto_approved", "file", body.file_id,
-                      entity_name=template.get("name", ""),
-                      details={"reason": "all fields cleared the auto-approve threshold"})
-        decision = "rejected" if auto_rejected else ("approved" if auto_approved else None)
-        return {
-            "success": True,
-            "data": {
-                "template_id": template_id,
-                "template_name": template.get("name", ""),
-                "template_type": template.get("template_type", ""),
-                "rules_triggered": rule_names,
-                "decision": decision,
-                **result,
-            },
-            "error": None,
-        }
+        data = await run_in_threadpool(run_template_extraction, template_id, body.file_id, body.page_numbers)
+        return {"success": True, "data": data, "error": None}
     except FileNotFoundError as e:
         return {"success": False, "data": None, "error": str(e)}
     except (RuntimeError, ValueError) as e:
