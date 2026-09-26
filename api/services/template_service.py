@@ -91,6 +91,7 @@ def create_template(
     secondary_id_fields: list[str] | None = None,
     reference_id_fields: list[str] | None = None,
     editable_in_file: bool = True,
+    extraction_engine: str = "claude",
 ) -> dict:
     fc: dict = {}
     for fname in direct_link_fields:
@@ -122,6 +123,7 @@ def create_template(
         "secondary_id_fields": secondary_id_fields or [],
         "reference_id_fields": reference_id_fields or [],
         "editable_in_file": editable_in_file,
+        "extraction_engine": extraction_engine,
         "comments": [],
         "created_at": datetime.utcnow().isoformat(),
     }

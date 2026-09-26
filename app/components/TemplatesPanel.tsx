@@ -1706,6 +1706,7 @@ function FileConfigPanel({
 
   // ── template-level settings ────────────────────────────────────────────
   const [editableInFile, setEditableInFile] = useState<boolean>(template.editable_in_file ?? true);
+  const [extractionEngine, setExtractionEngine] = useState<string>(template.extraction_engine ?? "claude");
   const [showCopyFrom, setShowCopyFrom] = useState(false);
   const [copyFromId, setCopyFromId] = useState("");
   const [copyingFrom, setCopyingFrom] = useState(false);
@@ -1734,6 +1735,7 @@ function FileConfigPanel({
       secondary_id_fields: secondaryIdFields,
       reference_id_fields: referenceIdFields,
       editable_in_file: editableInFile,
+      extraction_engine: extractionEngine,
     });
     setSaving(false);
     if (res.success && res.data) {
@@ -1827,6 +1829,18 @@ function FileConfigPanel({
             className={`relative w-9 h-5 rounded-full transition-colors cursor-pointer ${editableInFile ? "bg-blue-600" : "bg-gray-300"}`}>
             <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${editableInFile ? "translate-x-4" : ""}`} />
           </div>
+        </label>
+
+        <div className="w-px h-4 bg-gray-300" />
+
+        {/* Extraction engine */}
+        <label className="flex items-center gap-2 cursor-pointer select-none" title="Which AI engine reads this document type. Reducto is faster and cheaper per page; Claude supports this app's full custom prompt tuning (field synonyms enforcement, AI Memory learned corrections).">
+          <span className="text-gray-600 font-medium">Extraction Engine</span>
+          <select value={extractionEngine} onChange={(e) => setExtractionEngine(e.target.value)}
+            className="border border-gray-200 rounded px-2 py-1 text-xs bg-white outline-none focus:ring-1 ring-blue-400">
+            <option value="claude">Claude</option>
+            <option value="reducto">Reducto</option>
+          </select>
         </label>
 
         <div className="w-px h-4 bg-gray-300" />

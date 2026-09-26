@@ -972,8 +972,7 @@ def ai_smart_extract(pdf_path: Path, page_numbers: list[int] | None = None) -> d
 
     pages_with_text = {p["page_number"] for p in all_pages if (p.get("text_preview") or "").strip()}
 
-    results = []
-    for page_num in page_nums:
+    def _one(page_num: int) -> dict:
         # ── Only render as an image when the page has no extractable text layer ──
         if page_num in pages_with_text:
             page_image = None
@@ -1009,12 +1008,11 @@ Return ONLY a JSON object of this shape, no markdown, no explanation:
         elif page_text.strip():
             content = [{"type": "text", "text": f"{prompt}\n\nDocument text:\n{page_text}"}]
         else:
-            results.append({
+            return {
                 "page_number": page_num, "document_type": None,
                 "fields": {}, "table_columns": [], "table_rows": [], "table_evidence": "",
                 "text_preview": "",
-            })
-            continue
+            }
 
         parsed = _call_claude_for_json(content, context="smart_extract") or {}
 
@@ -1035,7 +1033,7 @@ Return ONLY a JSON object of this shape, no markdown, no explanation:
         smart_table_columns = parsed.get("table_columns", []) or []
         smart_table_rows = parsed.get("table_rows", []) or []
 
-        results.append({
+        return {
             "page_number": page_num,
             "document_type": parsed.get("document_type"),
             "fields": fields,
@@ -1044,8 +1042,13 @@ Return ONLY a JSON object of this shape, no markdown, no explanation:
             "table_rows": smart_table_rows,
             "table_evidence": _build_table_evidence(smart_table_rows, smart_table_columns),
             "text_preview": page_text[:800] if page_text else "",
-        })
+        }
 
+    # Pages are independent Claude calls that each take many seconds — read a
+    # few at a time instead of one after another.
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(_one, page_nums))
     return {"pages": results}
 
 

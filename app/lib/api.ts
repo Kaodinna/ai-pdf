@@ -60,6 +60,7 @@ export interface Template {
   secondary_id_fields: string[];
   reference_id_fields: string[];
   editable_in_file: boolean;
+  extraction_engine?: string;
   comments: TemplateComment[];
   created_at: string;
 }
@@ -101,6 +102,7 @@ export interface ExtractionResult {
   template_name: string;
   template_type: string;
   decision?: "approved" | "for_review" | "rejected" | null;
+  extraction_engine?: string;
   pages: ExtractedPage[];
 }
 
@@ -247,6 +249,7 @@ export async function updateTemplate(
     secondary_id_fields?: string[];
     reference_id_fields?: string[];
     editable_in_file?: boolean;
+    extraction_engine?: string;
   }
 ) {
   return apiFetch<Template>(`/templates/${id}`, {
@@ -313,11 +316,11 @@ export interface ProposedTemplate {
   table_fields: string[];
 }
 
-export async function proposeTemplate(file_id: string) {
+export async function proposeTemplate(file_id: string, engine?: string) {
   return apiFetch<ProposedTemplate>("/templates/propose", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ file_id }),
+    body: JSON.stringify({ file_id, engine }),
   });
 }
 
@@ -330,21 +333,24 @@ export interface SmartExtractedPage {
   table_rows: Record<string, string>[];
   table_evidence?: string;
   text_preview: string;
+  field_positions?: Record<string, FieldPosition>;
+  page_width?: number;
+  page_height?: number;
 }
 
-export async function smartExtract(file_id: string, page_numbers?: number[]) {
+export async function smartExtract(file_id: string, page_numbers?: number[], engine?: string) {
   return apiFetch<{ pages: SmartExtractedPage[]; decision?: "approved" | "for_review" | "rejected" | null }>("/smart-extract", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ file_id, page_numbers }),
+    body: JSON.stringify({ file_id, page_numbers, engine }),
   });
 }
 
-export async function extractTemplateData(template_id: string, file_id: string, page_numbers?: number[]) {
+export async function extractTemplateData(template_id: string, file_id: string, page_numbers?: number[], engine?: string) {
   return apiFetch<ExtractionResult>(`/templates/${template_id}/extract-data`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ file_id, page_numbers }),
+    body: JSON.stringify({ file_id, page_numbers, engine }),
   });
 }
 
@@ -392,13 +398,13 @@ export interface ShippingGroupResult {
   download_url: string;
 }
 
-export async function extractShippingData(file_id: string) {
+export async function extractShippingData(file_id: string, engine?: string) {
   return apiFetch<{ file_id: string; total_pages: number; records: ShippingRecord[] }>(
     "/shipping/extract",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ file_id }),
+      body: JSON.stringify({ file_id, engine }),
     }
   );
 }

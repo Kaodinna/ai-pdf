@@ -11,12 +11,15 @@ from services.shipping_service import (
 )
 from services.storage_service import storage
 from services.file_record_service import get_accessible_file_record
+from services.reducto_extraction_service import reducto_extract_shipping_data
+from services.metrics_service import increment
 
 router = APIRouter()
 
 
 class ShippingExtractRequest(BaseModel):
     file_id: str
+    engine: Optional[str] = None
 
 
 class ShippingSeparateRequest(BaseModel):
@@ -29,11 +32,16 @@ class ShippingSeparateRequest(BaseModel):
 async def extract_shipping_data(req: ShippingExtractRequest, request: Request):
     if not get_accessible_file_record(req.file_id, request.state.user):
         return {"success": False, "data": None, "error": "File record not found"}
+    engine = req.engine or "claude"
+    if engine not in ("claude", "reducto"):
+        return {"success": False, "data": None, "error": f"Unknown extraction engine: {engine}"}
 
     def _extract() -> list:
         path = storage.get_upload_path(req.file_id)
         validate_pdf(path)
-        return ai_extract_shipping_data(path)
+        records = reducto_extract_shipping_data(path) if engine == "reducto" else ai_extract_shipping_data(path)
+        increment(f"pages_extracted_{engine}", len(records))
+        return records
 
     # The Claude API call inside ai_extract_shipping_data is a blocking
     # network request that can take many seconds — run it off the event loop.

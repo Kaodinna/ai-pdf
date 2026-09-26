@@ -5,6 +5,7 @@ services:
       - "127.0.0.1:8004:8000"
     environment:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      REDUCTO_API_KEY: ${REDUCTO_API_KEY}
       CORS_ALLOWED_ORIGINS: "https://documentscanner.nexpa.co"
       ADMIN_EMAIL: ${ADMIN_EMAIL}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}

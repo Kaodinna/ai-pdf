@@ -13,8 +13,12 @@ from services.storage_service import storage
 from services.file_record_service import update_file_record, get_accessible_file_record
 from services.audit_service import log_event
 from services.extraction_service import run_template_extraction
+from services.reducto_extraction_service import reducto_smart_extract
+from services.metrics_service import increment
 
 router = APIRouter()
+
+PROPOSE_SAMPLE_PAGES = 3
 
 
 class TemplateCreate(BaseModel):
@@ -25,10 +29,16 @@ class TemplateCreate(BaseModel):
     special_conditions: list[str] = []
     field_synonyms: dict[str, list[str]] = {}
     unique_id_fields: list[str] = []
+    extraction_engine: str = "claude"
 
 
 class ApplyTemplateRequest(BaseModel):
     file_id: str
+
+
+class ProposeTemplateRequest(BaseModel):
+    file_id: str
+    engine: Optional[str] = None
 
 
 class DetectDocTypeRequest(BaseModel):
@@ -39,6 +49,7 @@ class DetectDocTypeRequest(BaseModel):
 class ExtractDataRequest(BaseModel):
     file_id: str
     page_numbers: Optional[list[int]] = None
+    engine: Optional[str] = None
 
 
 class RefineExtractionRequest(BaseModel):
@@ -59,6 +70,7 @@ class TemplateUpdate(BaseModel):
     secondary_id_fields: Optional[list[str]] = None
     reference_id_fields: Optional[list[str]] = None
     editable_in_file: Optional[bool] = None
+    extraction_engine: Optional[str] = None
 
 
 class CopyFromRequest(BaseModel):
@@ -92,6 +104,7 @@ async def save_template(body: TemplateCreate):
             body.special_conditions,
             body.field_synonyms,
             unique_id_fields=body.unique_id_fields,
+            extraction_engine=body.extraction_engine,
         )
         return {"success": True, "data": template, "error": None}
     except Exception as e:
@@ -233,7 +246,7 @@ def _humanize(key: str) -> str:
 
 
 @router.post("/templates/propose")
-async def propose_template(body: ApplyTemplateRequest, request: Request):
+async def propose_template(body: ProposeTemplateRequest, request: Request):
     """
     When a document matches no existing template, lift a draft template out of
     it instead of making the user type field names from scratch: run the same
@@ -245,15 +258,25 @@ async def propose_template(body: ApplyTemplateRequest, request: Request):
         if not get_accessible_file_record(body.file_id, request.state.user):
             return {"success": False, "data": None, "error": "File record not found"}
 
+        engine = body.engine or "claude"
+        if engine not in ("claude", "reducto"):
+            return {"success": False, "data": None, "error": f"Unknown extraction engine: {engine}"}
+
         def _propose() -> dict:
             path = storage.get_upload_path(body.file_id)
             validate_pdf(path)
-            return ai_smart_extract(path)
+            # A draft only needs a representative sample — reading every page of
+            # a long bundle multiplies time and cost for the same field names.
+            sample = list(range(1, PROPOSE_SAMPLE_PAGES + 1))
+            if engine == "reducto":
+                return reducto_smart_extract(path, sample)
+            return ai_smart_extract(path, sample)
 
         # The Claude API call inside ai_smart_extract is a blocking network
         # request that can take many seconds — run it off the event loop.
         result = await run_in_threadpool(_propose)
         pages = result.get("pages", [])
+        increment(f"pages_extracted_{engine}", len(pages))
         if not pages:
             return {"success": False, "data": None, "error": "Nothing to propose — the document has no readable pages"}
 
@@ -375,7 +398,7 @@ async def extract_template_data(template_id: str, body: ExtractDataRequest, requ
         # The Claude API call inside run_template_extraction is a blocking
         # network request that can take many seconds — run it off the event
         # loop so it doesn't stall every other in-flight request.
-        data = await run_in_threadpool(run_template_extraction, template_id, body.file_id, body.page_numbers)
+        data = await run_in_threadpool(run_template_extraction, template_id, body.file_id, body.page_numbers, body.engine)
         return {"success": True, "data": data, "error": None}
     except FileNotFoundError as e:
         return {"success": False, "data": None, "error": str(e)}

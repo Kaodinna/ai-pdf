@@ -151,8 +151,11 @@ function ReextractModal({
 }) {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [templateId, setTemplateId] = useState(initialTemplateId ?? record.template_id ?? "");
+  const [engine, setEngine] = useState(""); // "" = use the template's own default
   const [extracting, setExtracting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const templateDefaultEngine = templates.find((t) => t.id === templateId)?.extraction_engine ?? "claude";
 
   useEffect(() => {
     getTemplates().then((res) => {
@@ -167,7 +170,7 @@ function ReextractModal({
     if (!templateId) { setError("Select a template"); return; }
     setExtracting(true);
     setError(null);
-    const res = await extractTemplateData(templateId, record.id);
+    const res = await extractTemplateData(templateId, record.id, undefined, engine || undefined);
     setExtracting(false);
     if (!res.success || !res.data) { setError(res.error ?? "Extraction failed"); return; }
     // Build updated record from result
@@ -182,6 +185,9 @@ function ReextractModal({
         page_number: p.page_number,
         fields: p.fields,
         field_meta: p.field_meta,
+        field_positions: p.field_positions,
+        page_width: p.page_width,
+        page_height: p.page_height,
         table_rows: p.table_rows,
         table_evidence: p.table_evidence,
         applied_conditions: p.applied_conditions,
@@ -215,6 +221,15 @@ function ReextractModal({
             </select>
           )}
         </div>
+        <div>
+          <label className="text-xs font-medium text-gray-600 block mb-1">Extraction engine</label>
+          <select value={engine} onChange={(e) => setEngine(e.target.value)}
+            className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 ring-blue-400 bg-white">
+            <option value="">Template default ({templateDefaultEngine === "reducto" ? "Reducto" : "Claude"})</option>
+            <option value="claude">Claude — full tuning (synonyms, learned corrections, evidence notes)</option>
+            <option value="reducto">Reducto — faster and cheaper per page</option>
+          </select>
+        </div>
         <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
           This will overwrite all existing extracted field data for this file.
         </p>
@@ -245,13 +260,14 @@ function SmartExtractModal({
   onClose: () => void;
   onExtracted: (updated: FileRecord) => void;
 }) {
+  const [engine, setEngine] = useState("claude");
   const [extracting, setExtracting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleExtract = async () => {
     setExtracting(true);
     setError(null);
-    const res = await smartExtract(record.id);
+    const res = await smartExtract(record.id, undefined, engine);
     setExtracting(false);
     if (!res.success || !res.data) { setError(res.error ?? "Extraction failed"); return; }
     const pages = res.data.pages;
@@ -267,6 +283,9 @@ function SmartExtractModal({
         page_number: p.page_number,
         fields: p.fields,
         field_meta: p.field_meta,
+        field_positions: p.field_positions,
+        page_width: p.page_width,
+        page_height: p.page_height,
         table_rows: p.table_rows,
         table_evidence: p.table_evidence,
         applied_conditions: [],
@@ -290,8 +309,16 @@ function SmartExtractModal({
         </div>
         {error && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">{error}</p>}
         <p className="text-sm text-gray-700">
-          Claude will analyse this document, infer its type, and extract all key fields and tables automatically — no template needed.
+          The AI will analyse this document, infer its type, and extract all key fields and tables automatically — no template needed.
         </p>
+        <div>
+          <label className="text-xs font-medium text-gray-600 block mb-1">Extraction engine</label>
+          <select value={engine} onChange={(e) => setEngine(e.target.value)} disabled={extracting}
+            className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 ring-teal-400 bg-white">
+            <option value="claude">Claude — open-ended reading, adds an evidence note per field</option>
+            <option value="reducto">Reducto — faster and cheaper per page</option>
+          </select>
+        </div>
         <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
           This will overwrite any existing extracted field data.
         </p>
@@ -332,6 +359,120 @@ function DecisionDot({ status }: { status?: FieldMeta["status"] }) {
   return <span className="w-1.5 h-1.5 rounded-full bg-gray-300 flex-shrink-0" title="Needs review" />;
 }
 
+// Full-value popup: long or multi-line values are clipped on the card, so this
+// shows the whole thing (line breaks kept), lets you copy it, and edits it in a
+// proper text box instead of the one-line inline input.
+function FieldValueModal({
+  fieldKey,
+  value,
+  meta,
+  startInEdit,
+  onSave,
+  onClose,
+}: {
+  fieldKey: string;
+  value: string | null;
+  meta?: FieldMeta;
+  startInEdit: boolean;
+  onSave: (key: string, val: string | null, reason?: string) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [editing, setEditing] = useState(startInEdit);
+  const [draft, setDraft] = useState(value ?? "");
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const isCorrection = !!meta && draft !== (value ?? "");
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(value ?? "");
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch { /* clipboard blocked — nothing useful to do */ }
+  };
+
+  const save = async () => {
+    setSaving(true);
+    await onSave(fieldKey, draft || null, isCorrection ? reason.trim() || undefined : undefined);
+    setSaving(false);
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onMouseDown={(e) => { if (e.target === e.currentTarget && !editing) onClose(); }}>
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col">
+        <div className="flex items-start gap-3 px-5 py-4 border-b">
+          <div className="flex-1 min-w-0">
+            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Field</p>
+            <h3 className="text-sm font-semibold text-gray-800 break-words">{fieldKey}</h3>
+          </div>
+          {meta && <ConfidenceBadge confidence={meta.confidence} />}
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 flex-shrink-0" title="Close">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+          {editing ? (
+            <>
+              <textarea autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} rows={8}
+                onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") save(); }}
+                className="w-full text-sm border rounded-lg px-3 py-2 outline-none focus:ring-2 ring-blue-400 resize-y" />
+              {isCorrection && (
+                <input value={reason} onChange={(e) => setReason(e.target.value)}
+                  placeholder="Why? (optional — teaches future extractions)"
+                  className="w-full text-xs border rounded-lg px-3 py-2 outline-none focus:ring-1 ring-purple-400 text-gray-600" />
+              )}
+            </>
+          ) : (
+            <div className={`rounded-lg border bg-gray-50 px-3 py-2.5 text-sm whitespace-pre-wrap break-words max-h-[50vh] overflow-y-auto ${value ? "text-gray-900" : "text-gray-300 italic"}`}>
+              {value ?? "No value extracted"}
+            </div>
+          )}
+          {meta?.evidence && !editing && (
+            <p className="text-xs text-gray-500 italic break-words">{meta.evidence}</p>
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t bg-gray-50 rounded-b-xl">
+          {editing ? (
+            <>
+              <span className="mr-auto text-[11px] text-gray-400 hidden sm:block">Ctrl/⌘ + Enter to save</span>
+              <button onClick={() => { setDraft(value ?? ""); setReason(""); setEditing(false); }}
+                className="text-sm text-gray-500 border rounded-lg px-4 py-1.5 hover:bg-white">Cancel</button>
+              <button onClick={save} disabled={saving}
+                className="text-sm bg-blue-700 text-white px-5 py-1.5 rounded-lg font-medium hover:bg-blue-800 disabled:opacity-50">
+                {saving ? "Saving…" : "Save"}
+              </button>
+            </>
+          ) : (
+            <>
+              <button onClick={copy} disabled={!value}
+                className="text-sm text-gray-600 border rounded-lg px-4 py-1.5 hover:bg-white disabled:opacity-40">
+                {copied ? "Copied ✓" : "Copy"}
+              </button>
+              <button onClick={() => setEditing(true)}
+                className="text-sm bg-blue-700 text-white px-5 py-1.5 rounded-lg font-medium hover:bg-blue-800">
+                Edit
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function FieldCard({
   fieldKey,
   value,
@@ -364,6 +505,21 @@ function FieldCard({
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const valueRef = useRef<HTMLParagraphElement>(null);
+  const [isLong, setIsLong] = useState(false);
+  const [modal, setModal] = useState<null | "view" | "edit">(null);
+
+  // Long values are clipped to one line and multi-line ones get squashed, so
+  // detect when the card is hiding part of the value and offer the popup.
+  useEffect(() => {
+    const el = valueRef.current;
+    if (!el) return;
+    const check = () => setIsLong(el.scrollWidth > el.clientWidth + 1 || (value ?? "").includes("\n"));
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [value, editing]);
 
   useEffect(() => { if (editing) inputRef.current?.focus(); }, [editing]);
 
@@ -425,10 +581,21 @@ function FieldCard({
           className="w-full mt-1.5 text-[11px] bg-white border rounded px-2 py-1 outline-none focus:ring-1 ring-purple-400 text-gray-600" />
       )}
       {!editing && (
-        <p className={`text-sm font-medium truncate cursor-text ${value ? "text-gray-900" : "text-gray-300 italic"}`}
-          onClick={onStartEdit}>
-          {value ?? "—"}
-        </p>
+        <div className="flex items-center gap-1.5">
+          <p ref={valueRef} className={`text-sm font-medium truncate flex-1 min-w-0 ${isLong ? "cursor-pointer" : "cursor-text"} ${value ? "text-gray-900" : "text-gray-300 italic"}`}
+            title={isLong ? "Click to view the full value" : undefined}
+            onClick={() => (isLong ? setModal("view") : onStartEdit())}>
+            {value ?? "—"}
+          </p>
+          {isLong && (
+            <button onClick={() => setModal("view")} title="View full value"
+              className="flex-shrink-0 text-gray-400 hover:text-blue-600 transition-colors">
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4h4M20 8V4h-4M4 16v4h4M20 16v4h-4" />
+              </svg>
+            </button>
+          )}
+        </div>
       )}
       {meta?.evidence && !editing && (
         <p className="text-[11px] text-gray-400 italic truncate mt-0.5" title={meta.evidence}>
@@ -453,7 +620,7 @@ function FieldCard({
               </button>
             </>
           )}
-          <button onClick={onStartEdit} title="Edit"
+          <button onClick={() => (isLong ? setModal("edit") : onStartEdit())} title="Edit"
             className="text-gray-300 hover:text-blue-600 transition-colors">
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -466,6 +633,10 @@ function FieldCard({
             </svg>
           </button>
         </div>
+      )}
+      {modal && (
+        <FieldValueModal fieldKey={fieldKey} value={value} meta={meta} startInEdit={modal === "edit"}
+          onSave={onSave} onClose={() => setModal(null)} />
       )}
     </div>
   );
