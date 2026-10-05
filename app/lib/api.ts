@@ -60,7 +60,6 @@ export interface Template {
   secondary_id_fields: string[];
   reference_id_fields: string[];
   editable_in_file: boolean;
-  extraction_engine?: string;
   comments: TemplateComment[];
   created_at: string;
 }
@@ -102,7 +101,6 @@ export interface ExtractionResult {
   template_name: string;
   template_type: string;
   decision?: "approved" | "for_review" | "rejected" | null;
-  extraction_engine?: string;
   pages: ExtractedPage[];
 }
 
@@ -127,7 +125,12 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<{ succe
   try {
     const res = await fetch(`${BASE}${path}`, { credentials: "include", ...options });
     if (res.status === 401) onUnauthorized?.();
-    return await res.json();
+    const body = await res.json();
+    // Any write may have spent or refunded credits, so let the balance views refresh.
+    if (options?.method && options.method !== "GET" && typeof window !== "undefined") {
+      window.dispatchEvent(new Event("credits-changed"));
+    }
+    return body;
   } catch (e) {
     return { success: false, data: null, error: e instanceof Error ? e.message : "Network error" };
   }
@@ -249,7 +252,6 @@ export async function updateTemplate(
     secondary_id_fields?: string[];
     reference_id_fields?: string[];
     editable_in_file?: boolean;
-    extraction_engine?: string;
   }
 ) {
   return apiFetch<Template>(`/templates/${id}`, {
@@ -316,11 +318,11 @@ export interface ProposedTemplate {
   table_fields: string[];
 }
 
-export async function proposeTemplate(file_id: string, engine?: string) {
+export async function proposeTemplate(file_id: string) {
   return apiFetch<ProposedTemplate>("/templates/propose", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ file_id, engine }),
+    body: JSON.stringify({ file_id }),
   });
 }
 
@@ -338,19 +340,19 @@ export interface SmartExtractedPage {
   page_height?: number;
 }
 
-export async function smartExtract(file_id: string, page_numbers?: number[], engine?: string) {
+export async function smartExtract(file_id: string, page_numbers?: number[]) {
   return apiFetch<{ pages: SmartExtractedPage[]; decision?: "approved" | "for_review" | "rejected" | null }>("/smart-extract", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ file_id, page_numbers, engine }),
+    body: JSON.stringify({ file_id, page_numbers }),
   });
 }
 
-export async function extractTemplateData(template_id: string, file_id: string, page_numbers?: number[], engine?: string) {
+export async function extractTemplateData(template_id: string, file_id: string, page_numbers?: number[]) {
   return apiFetch<ExtractionResult>(`/templates/${template_id}/extract-data`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ file_id, page_numbers, engine }),
+    body: JSON.stringify({ file_id, page_numbers }),
   });
 }
 
@@ -398,13 +400,13 @@ export interface ShippingGroupResult {
   download_url: string;
 }
 
-export async function extractShippingData(file_id: string, engine?: string) {
+export async function extractShippingData(file_id: string) {
   return apiFetch<{ file_id: string; total_pages: number; records: ShippingRecord[] }>(
     "/shipping/extract",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ file_id, engine }),
+      body: JSON.stringify({ file_id }),
     }
   );
 }
@@ -1363,3 +1365,51 @@ export async function assignInboxRecord(id: string, assigned_to: string | null) 
   });
 }
 
+
+export interface CreditPackage {
+  id: string;
+  name: string;
+  credits: number;
+  usd: number;
+}
+
+export interface BillingInfo {
+  balance: number;
+  page_credits: number;
+  usd_per_credit: number;
+  trial_credits: number;
+  packages: CreditPackage[];
+  payments_enabled: boolean;
+}
+
+export interface CreditEntry {
+  id: string;
+  delta: number;
+  balance_after: number;
+  reason: string;
+  created_at: string;
+}
+
+export async function getBilling() {
+  return apiFetch<BillingInfo>("/billing/me");
+}
+
+export async function getBillingHistory() {
+  return apiFetch<CreditEntry[]>("/billing/history");
+}
+
+export async function startCheckout(package_id: string) {
+  return apiFetch<{ url: string }>("/billing/checkout", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ package_id }),
+  });
+}
+
+export async function grantCredits(user_id: string, credits: number, note: string) {
+  return apiFetch<{ balance: number }>("/billing/grant", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_id, credits, note }),
+  });
+}

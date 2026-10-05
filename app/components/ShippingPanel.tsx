@@ -222,7 +222,6 @@ export default function ShippingPanel() {
   const [zipUrl, setZipUrl]     = useState<string | null>(null);
   const [activeGroupBy, setActiveGroupBy] = useState<"company" | "container" | null>(null);
   const [error, setError]       = useState<string | null>(null);
-  const [engine, setEngine]     = useState("claude");
 
   const handleFile = async (files: File[]) => {
     const f = files[0];
@@ -245,7 +244,7 @@ export default function ShippingPanel() {
     setRecords(null);
     setGroups(null);
     setZipUrl(null);
-    const res = await extractShippingData(fileId, engine);
+    const res = await extractShippingData(fileId);
     setExtracting(false);
     if (res.success && res.data) setRecords(res.data.records);
     else setError(res.error || "Extraction failed");
@@ -298,14 +297,6 @@ export default function ShippingPanel() {
               d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
           </svg>
           <span className="flex-1 text-sm font-medium text-gray-800 truncate">{filename}</span>
-          {!records && (
-            <select value={engine} onChange={(e) => setEngine(e.target.value)} disabled={extracting}
-              title="Which AI engine reads the document. Reducto is faster and cheaper per page."
-              className="shrink-0 border border-blue-200 rounded-lg px-2 py-1.5 text-xs bg-white outline-none focus:ring-1 ring-blue-400">
-              <option value="claude">Claude</option>
-              <option value="reducto">Reducto (faster, cheaper)</option>
-            </select>
-          )}
           {!records && (
             <button
               onClick={handleExtract}

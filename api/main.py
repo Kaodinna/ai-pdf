@@ -22,6 +22,7 @@ from routes.workflow import router as workflow_router
 from routes.rules import router as rules_router
 from routes.library import router as library_router
 from routes.learning import router as learning_router
+from routes.billing import router as billing_router
 from routes.security import router as security_router
 from routes.export import router as export_router
 from routes.audit import router as audit_router
@@ -44,7 +45,34 @@ app = FastAPI(title="AI PDF API", version="1.0.0")
 # Every route requires a valid session by default — allowlist the few that
 # don't (login itself, health checks) rather than opting each route in one
 # by one, so nothing new can slip through unprotected by accident.
-_PUBLIC_PATHS = {"/health", "/auth/login"}
+_PUBLIC_PATHS = {"/health", "/auth/login", "/billing/webhook"}
+
+# Staff can use the app but not change how it's configured or who uses it.
+# Everything under these prefixes is admin-only for all methods...
+_ADMIN_ONLY_PREFIXES = ("/users", "/rules", "/security", "/document-types")
+# ...while these are readable by staff, because files and templates need them
+# (file status options, library dropdowns), and only their changes are admin-only.
+_ADMIN_ONLY_CHANGE_PREFIXES = ("/workflow", "/libraries")
+_READ_METHODS = {"GET", "HEAD"}
+
+
+_NOT_TEMPLATE_IDS = {"detect", "suggest", "propose"}
+
+
+def _template_id_in_path(path: str) -> str | None:
+    """The template a /templates/{id}... request is about, so every such route is
+    company-checked in one place rather than per endpoint."""
+    parts = path.split("/")
+    if len(parts) >= 3 and parts[1] == "templates" and parts[2] and parts[2] not in _NOT_TEMPLATE_IDS:
+        return parts[2]
+    return None
+
+
+def _is_admin_only(request: Request) -> bool:
+    path = request.url.path
+    if path.startswith(_ADMIN_ONLY_PREFIXES):
+        return True
+    return path.startswith(_ADMIN_ONLY_CHANGE_PREFIXES) and request.method not in _READ_METHODS
 
 
 @app.middleware("http")
@@ -56,11 +84,20 @@ async def require_auth(request: Request, call_next):
     if not user:
         return JSONResponse(status_code=401, content={"success": False, "data": None, "error": "Not authenticated"})
 
-    if request.url.path.startswith("/users") and user.get("role") != "admin":
+    if user.get("role") != "admin" and _is_admin_only(request):
         return JSONResponse(status_code=403, content={"success": False, "data": None, "error": "Admin access required"})
 
+    template_id = _template_id_in_path(request.url.path)
+    if template_id:
+        from services.template_service import get_template_for
+        if not get_template_for(template_id, user):
+            return JSONResponse(status_code=404, content={"success": False, "data": None, "error": "Template not found"})
+
     request.state.user = user
-    return await call_next(request)
+    from services.request_context import company_scope
+    from services.company_service import is_platform_owner
+    with company_scope(user.get("company_id"), platform=is_platform_owner(user)):
+        return await call_next(request)
 
 
 # CORSMiddleware is added AFTER require_auth so it ends up as the outermost
@@ -97,6 +134,7 @@ app.include_router(workflow_router)
 app.include_router(rules_router)
 app.include_router(library_router)
 app.include_router(learning_router)
+app.include_router(billing_router)
 app.include_router(security_router)
 app.include_router(export_router)
 app.include_router(audit_router)
@@ -138,6 +176,20 @@ async def preview_pdf(file_id: str, request: Request):
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.on_event("startup")
+async def assign_companies():
+    from services.company_service import ensure_legacy_company
+    ensure_legacy_company()
+
+
+@app.on_event("startup")
+async def grant_existing_trials():
+    from services.credit_service import ensure_trials_for_existing_users
+    granted = ensure_trials_for_existing_users()
+    if granted:
+        print(f"[billing] granted trial credits to {granted} existing account(s)")
 
 
 @app.on_event("startup")

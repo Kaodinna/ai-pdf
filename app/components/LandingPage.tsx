@@ -65,7 +65,7 @@ export default function LandingPage({ onSignIn }: { onSignIn: () => void }) {
             className="inline-flex items-center justify-center gap-2 h-10 px-6 rounded-[10px] bg-[#c45c26] text-white text-[13.5px] font-semibold tracking-tight shadow-[0_8px_24px_rgba(196,92,38,.28)] hover:bg-[#d4682c] hover:-translate-y-px transition-all">
             Continue to workspace
           </button>
-          <p className="text-[12.5px] text-[#7d8276]">Access is admin-managed. Ask your workspace admin for an account.</p>
+          <p className="text-[12.5px] text-[#7d8276]">Already a customer? Sign in. New to AI PDF Studio? Contact us to set up your company.</p>
         </div>
       </section>
 
@@ -88,14 +88,14 @@ export default function LandingPage({ onSignIn }: { onSignIn: () => void }) {
             <div className="bg-[#1b1d18] lg:border-r border-b lg:border-b-0 border-[#2a2c26] p-4 sm:p-[22px]">
               <article className="bg-[#f4efe4] text-[#1a1c16] rounded-lg p-6 sm:p-[28px_30px] shadow-[0_10px_30px_rgba(0,0,0,.25)] text-[12.5px]">
                 <div className="flex justify-between items-baseline text-[10px] tracking-[.14em] uppercase text-[#7a7364] mb-[18px]">
-                  <span>Ocean Bill of Lading</span>
+                  <span>Sample · Ocean Bill of Lading</span>
                   <span>BL-X26-00002</span>
                 </div>
-                <h3 className={`${instrumentSerif.className} text-[26px] font-normal mb-1`}>Actual Shipping Line</h3>
+                <h3 className={`${instrumentSerif.className} text-[26px] font-normal mb-1`}>Example Carrier Co.</h3>
                 <p className="text-[#6b6558] mb-[22px] text-xs">Port of loading &middot; Shanghai &nbsp;&rarr;&nbsp; Port of discharge &middot; Lagos</p>
                 <dl className="grid grid-cols-2 gap-x-[18px] gap-y-2.5 mb-5">
-                  <div><dt className="text-[10px] uppercase tracking-[.08em] text-[#8a8374]">Shipper</dt><dd className="font-semibold">Eastwind Trading Co.</dd></div>
-                  <div><dt className="text-[10px] uppercase tracking-[.08em] text-[#8a8374]">Consignee</dt><dd className="font-semibold">Harbor Gate Ltd.</dd></div>
+                  <div><dt className="text-[10px] uppercase tracking-[.08em] text-[#8a8374]">Shipper</dt><dd className="font-semibold">Example Shipper Ltd.</dd></div>
+                  <div><dt className="text-[10px] uppercase tracking-[.08em] text-[#8a8374]">Consignee</dt><dd className="font-semibold">Example Consignee Inc.</dd></div>
                   <div><dt className="text-[10px] uppercase tracking-[.08em] text-[#8a8374]">Vessel / Voyage</dt><dd className="font-semibold">MV Harmattan / 26W38</dd></div>
                   <div><dt className="text-[10px] uppercase tracking-[.08em] text-[#8a8374]">On board</dt><dd className="font-semibold">12 Sep 2026</dd></div>
                 </dl>
@@ -191,17 +191,17 @@ export default function LandingPage({ onSignIn }: { onSignIn: () => void }) {
           {[
             {
               title: "AI extraction",
-              desc: "Point it at a BL, invoice, or delivery order. Structured fields come back ready for review — not another data-entry queue.",
+              desc: "Point it at a bill of lading, invoice or delivery order. Structured fields come back in seconds, ready for review.",
               icon: <path strokeLinecap="round" d="M4 7h16M4 12h10M4 17h7" />,
             },
             {
               title: "Templates that learn",
-              desc: "Split a combined field once. The next document of that type arrives already split. Corrections compound.",
+              desc: "Set up a template once for each document type. Corrections your team makes feed back into future extractions.",
               icon: <path strokeLinecap="round" d="M12 3v18M8 8l4-4 4 4M8 16l4 4 4-4" />,
             },
             {
               title: "Push to systems",
-              desc: "Map fields to an API or ERP endpoint. Rules fire when a value matches. Inbox, split/merge, and audit trail sit behind this.",
+              desc: "Send extracted data to your ERP or any API endpoint. Documents emailed to your mailbox are read on arrival, with a full audit trail.",
               icon: <path strokeLinecap="round" d="M5 12h14M13 6l6 6-6 6" />,
             },
           ].map((f) => (
@@ -220,7 +220,7 @@ export default function LandingPage({ onSignIn }: { onSignIn: () => void }) {
 
       <footer className="w-[min(1120px,calc(100%-40px))] mx-auto border-t border-[#2a2c26] py-[22px] sm:pb-9 flex flex-col sm:flex-row gap-1.5 sm:gap-0 justify-between text-[#7a7f72] text-[12.5px]">
         <span>&copy; 2026 AI PDF Studio</span>
-        <span>Internal document workspace</span>
+        <span>Document processing for logistics teams</span>
       </footer>
     </div>
   );

@@ -79,7 +79,7 @@ def get_user_by_id(user_id: str) -> dict | None:
     return next((u for u in _load(USERS_FILE) if u["id"] == user_id), None)
 
 
-def create_user(email: str, name: str, password: str, role: str = "member") -> dict:
+def create_user(email: str, name: str, password: str, role: str = "member", company_id: str | None = None) -> dict:
     users = _load(USERS_FILE)
     email = email.strip().lower()
     if any(u["email"] == email for u in users):
@@ -90,6 +90,7 @@ def create_user(email: str, name: str, password: str, role: str = "member") -> d
         "name": name.strip(),
         "password_hash": _hash_password(password),
         "role": role,
+        "company_id": company_id,
         "created_at": datetime.utcnow().isoformat(),
     }
     users.append(user)

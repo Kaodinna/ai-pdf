@@ -1,16 +1,14 @@
 """
-Reducto-backed alternative to ai_service.ai_extract_template_fields() — same
-per-page result shape, so extraction_service.run_template_extraction() can
-route a template to either engine transparently and everything downstream
-(rules, auto-approve/reject, audit logging, the frontend) needs no changes.
+Reducto (https://docs.reducto.ai) is this app's sole AI extraction engine —
+template field extraction, Smart Extract, the Shipping tab, and drafting a
+template from a document all go through here. Reducto's Extract API reads a
+page image and fills a JSON schema in one call, returning per-field bounding
+boxes already normalized as 0-1 fractions of the page and a confidence score.
 
-Reducto's Extract API (https://docs.reducto.ai) reads a page image and fills
-a JSON schema in one call, returning per-field bounding boxes already
-normalized as 0-1 fractions of the page and a confidence score — cheaper and
-roughly an order of magnitude faster per page than the Claude Vision path in
-ai_service.py, at the cost of losing this app's custom prompt tuning (field
-synonyms are passed as extra schema description text, not enforced rules,
-and there's no equivalent of AI Memory's learned-correction hints yet).
+Field synonyms and AI Memory's learned-correction hints are folded into each
+field's schema description as extra guidance text (see _build_schema) — this
+is advisory, not enforced the way Claude's prompt-based rules were, so it can
+be ignored on a given page in a way a hard rule couldn't.
 """
 
 import os
@@ -62,11 +60,15 @@ def _extract_one_page(client, file_id: str, schema: dict, system_prompt: str, pa
     return (raw[0] if isinstance(raw, list) and raw else raw) or {}
 
 
-def _build_schema(template: dict) -> dict:
+def _build_schema(template: dict, memories: list[dict] | None = None) -> dict:
     direct_link_fields = template.get("direct_link_fields", [])
     field_config = template.get("field_config", {})
     table_fields = template.get("table_fields", [])
     table_config = template.get("table_config", {})
+
+    memories_by_field: dict[str, list[dict]] = {}
+    for m in memories or []:
+        memories_by_field.setdefault(m["field_name"], []).append(m)
 
     properties: dict = {}
     for fname in direct_link_fields:
@@ -78,6 +80,11 @@ def _build_schema(template: dict) -> dict:
         restriction = cfg.get("data_type_restriction")
         if restriction:
             desc += f". Rule: {restriction}"
+        for mem in memories_by_field.get(fname, []):
+            desc += (
+                f". A reviewer previously corrected \"{mem.get('original_value')}\" to "
+                f"\"{mem.get('corrected_value')}\" because: {mem.get('reason')}. Apply this pattern when it applies."
+            )
         properties[fname] = {
             "type": _TYPE_MAP.get(cfg.get("data_type", "Text"), "string"),
             "description": desc,
@@ -137,15 +144,16 @@ def reducto_extract_template_fields(
     template: dict,
     page_numbers: list[int] | None = None,
 ) -> dict:
-    """Same contract as ai_service.ai_extract_template_fields(): returns
+    """Extracts a template's fields via Reducto. Returns
     {"pages": [{page_number, fields, field_meta, field_positions, page_width,
     page_height, table_rows, table_evidence, applied_conditions,
     text_preview}, ...]}."""
     from services.ai_service import _apply_decision_status
+    from services.ai_memory_service import get_active_memories
 
-    client = _get_client()
-    schema = _build_schema(template)
     doc_type = template.get("template_type", template.get("name", "document"))
+    client = _get_client()
+    schema = _build_schema(template, memories=get_active_memories(doc_type, template.get("company_id")))
 
     all_pages = extract_text_per_page(pdf_path, char_limit=1)
     page_nums = (
@@ -292,8 +300,7 @@ def _shipping_schema() -> dict:
 
 
 def reducto_extract_shipping_data(pdf_path: Path) -> list[dict]:
-    """Same contract as shipping_service.ai_extract_shipping_data(): one flat
-    record per page."""
+    """One flat shipping record per page."""
     client = _get_client()
     schema = _shipping_schema()
     page_nums = [p["page_number"] for p in extract_text_per_page(pdf_path, char_limit=1)]
@@ -474,13 +481,11 @@ def _classify_pages(client, file_id: str, page_nums: list[int], categories: list
     return dict(zip(page_nums, _map_pages(one, page_nums)))
 
 
-def reducto_smart_extract(pdf_path: Path, page_numbers: list[int] | None = None) -> dict:
-    """Same contract as ai_service.ai_smart_extract(): template-less extraction.
-    Reducto's Parse reads the layout and returns labelled values and tables
+def reducto_smart_extract(pdf_path: Path, page_numbers: list[int] | None = None, templates: list[dict] | None = None) -> dict:
+    """Template-less extraction. Reducto's Parse reads the layout and returns labelled values and tables
     with no schema; this turns them into named fields, and Classify supplies
     the document type per page."""
     from services.ai_service import _apply_decision_status, _build_table_evidence, _search_value_position
-    from services.template_service import list_templates
 
     client = _get_client()
     all_pages = extract_text_per_page(pdf_path, char_limit=1)
@@ -508,7 +513,7 @@ def reducto_smart_extract(pdf_path: Path, page_numbers: list[int] | None = None)
                 blocks_by_page.setdefault(int(page), []).append(b)
 
     categories = list(_CLASSIFY_BASE_TYPES)
-    for t in list_templates():
+    for t in templates or []:
         name = (t.get("template_type") or t.get("name") or "").strip()
         if name and name.lower() not in {c.lower() for c in categories}:
             categories.append(name)

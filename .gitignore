@@ -35,3 +35,7 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+
+# Eval: real labelled documents and results contain customer data
+api/eval/real/
+api/eval/results/

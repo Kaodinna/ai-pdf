@@ -9,49 +9,56 @@ drifting apart.
 from datetime import datetime
 
 from services.template_service import get_template
-from services.ai_service import ai_extract_template_fields
 from services.reducto_extraction_service import reducto_extract_template_fields
 from services.pdf_service import validate_pdf
 from services.storage_service import storage
-from services.file_record_service import update_file_record
+from services.file_record_service import update_file_record, get_file_record
+from contextlib import nullcontext
+
+from services.credit_service import billing_account_for_file, Reservation, pages_cost
 from services.rule_service import list_rules
 from services.rule_engine import run_rules_on_file
 from services.audit_service import log_event
 from services.metrics_service import increment
+from services.request_context import company_scope
 from services.approval_settings_service import get_settings, all_fields_cleared, should_auto_reject
-
-
-ENGINES = ("claude", "reducto")
 
 
 def run_template_extraction(
     template_id: str,
     file_id: str,
     page_numbers: list[int] | None = None,
-    engine: str | None = None,
+    user_id: str | None = None,
 ) -> dict:
+    template = get_template(template_id)
+    if not template:
+        raise ValueError("Template not found")
+    with company_scope(template.get("company_id")):
+        return _run_template_extraction(template, template_id, file_id, page_numbers, user_id)
+
+
+def _run_template_extraction(template, template_id, file_id, page_numbers, user_id):
     """Extract `file_id` against `template_id`, persist the result onto the
     file record, run on_extraction automation rules and auto-approve/reject,
     and return the same payload the /extract-data route hands to the
     frontend. Raises (ValueError / FileNotFoundError / RuntimeError) on
     failure — callers decide how to surface that: an HTTP error response for
     the manual endpoint, a swallowed per-attachment warning during
-    unattended mailbox ingestion. `engine` overrides the template's default
-    extraction engine for this one run."""
+    unattended mailbox ingestion."""
     template = get_template(template_id)
     if not template:
         raise ValueError("Template not found")
 
+    record = get_file_record(file_id) or {}
+    payer = user_id or billing_account_for_file(record)
+    estimated_pages = len(page_numbers) if page_numbers else (record.get("page_count") or 1)
     path = storage.get_upload_path(file_id)
     validate_pdf(path)
-    engine = engine or template.get("extraction_engine") or "claude"
-    if engine not in ENGINES:
-        raise ValueError(f"Unknown extraction engine: {engine}")
-    result = (
-        reducto_extract_template_fields(path, template, page_numbers)
-        if engine == "reducto"
-        else ai_extract_template_fields(path, template, page_numbers)
-    )
+    reservation = Reservation(payer, pages_cost(estimated_pages), "Template extraction", file_id) if payer else nullcontext()
+    with reservation as r:
+        result = reducto_extract_template_fields(path, template, page_numbers)
+        if payer:
+            r.actual = pages_cost(len(result.get("pages", [])))
 
     slim_pages = result.get("pages", [])
     file_updates = {
@@ -59,7 +66,6 @@ def run_template_extraction(
         "template_name": template.get("name", ""),
         "template_type": template.get("template_type", ""),
         "extracted_at": datetime.utcnow().isoformat(),
-        "extraction_engine": engine,
         "pages": slim_pages,
     }
 
@@ -85,8 +91,8 @@ def run_template_extraction(
     log_event("extracted", "file", file_id,
               entity_name=template.get("name", ""),
               details={"template_id": template_id, "rules_triggered": rule_names,
-                       "pages": len(slim_pages), "engine": engine})
-    increment(f"pages_extracted_{engine}", len(slim_pages))
+                       "pages": len(slim_pages)})
+    increment("pages_extracted_reducto", len(slim_pages))
     if auto_rejected:
         log_event("auto_rejected", "file", file_id,
                   entity_name=template.get("name", ""),
@@ -103,6 +109,5 @@ def run_template_extraction(
         "template_type": template.get("template_type", ""),
         "rules_triggered": rule_names,
         "decision": decision,
-        "extraction_engine": engine,
         **result,
     }

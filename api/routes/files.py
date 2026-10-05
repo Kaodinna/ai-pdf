@@ -160,7 +160,8 @@ async def update_field(file_id: str, body: FieldUpdate, request: Request):
         log_event(f"field_{body.action}d", "file", file_id,
                   entity_name=record.get("filename", ""),
                   user=body.user,
-                  details={"field": body.field, "value": body.value})
+                  details={"field": body.field, "value": body.value,
+                           "original": old_value, "ai_derived": was_ai_derived})
 
         if body.action == "update" and was_approved and body.value != old_value:
             increment_metric("corrected_after_approval_total")
@@ -173,6 +174,7 @@ async def update_field(file_id: str, body: FieldUpdate, request: Request):
                 corrected_value=body.value,
                 reason=body.reason,
                 created_by=body.user,
+                company_id=record.get("company_id"),
             )
             log_event("ai_memory_created", "file", file_id,
                       entity_name=record.get("filename", ""),

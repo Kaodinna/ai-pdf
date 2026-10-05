@@ -1,4 +1,6 @@
 import json
+
+from services.request_context import current_company, visible
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -34,14 +36,14 @@ def _save(rules: list[dict]) -> None:
 
 
 def list_rules(trigger_type: str | None = None) -> list[dict]:
-    rules = sorted(_load(), key=lambda r: r.get("sequence", 999))
+    rules = sorted((r for r in _load() if visible(r)), key=lambda r: r.get("sequence", 999))
     if trigger_type:
         rules = [r for r in rules if r.get("trigger_type") == trigger_type]
     return rules
 
 
 def get_rule(rule_id: str) -> dict | None:
-    return next((r for r in _load() if r["id"] == rule_id), None)
+    return next((r for r in _load() if r["id"] == rule_id and visible(r)), None)
 
 
 def create_rule(
@@ -54,8 +56,9 @@ def create_rule(
     created_by: str = "",
 ) -> dict:
     rules = _load()
-    same_type = [r for r in rules if r.get("trigger_type") == trigger_type]
+    same_type = [r for r in rules if r.get("trigger_type") == trigger_type and visible(r)]
     rule = {
+        "company_id": current_company.get(),
         "id": str(uuid.uuid4()),
         "name": name,
         "trigger_type": trigger_type,
@@ -76,7 +79,7 @@ def create_rule(
 def update_rule(rule_id: str, updates: dict) -> dict | None:
     rules = _load()
     for i, r in enumerate(rules):
-        if r["id"] == rule_id:
+        if r["id"] == rule_id and visible(r):
             rules[i] = {**r, **updates}
             _save(rules)
             return rules[i]
@@ -86,7 +89,7 @@ def update_rule(rule_id: str, updates: dict) -> dict | None:
 def toggle_rule(rule_id: str) -> dict | None:
     rules = _load()
     for i, r in enumerate(rules):
-        if r["id"] == rule_id:
+        if r["id"] == rule_id and visible(r):
             rules[i] = {**r, "active": not r.get("active", True)}
             _save(rules)
             return rules[i]
@@ -95,7 +98,7 @@ def toggle_rule(rule_id: str) -> dict | None:
 
 def delete_rule(rule_id: str) -> bool:
     rules = _load()
-    new_list = [r for r in rules if r["id"] != rule_id]
+    new_list = [r for r in rules if not (r["id"] == rule_id and visible(r))]
     if len(new_list) == len(rules):
         return False
     _save(new_list)

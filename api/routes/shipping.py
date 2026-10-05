@@ -1,17 +1,16 @@
 from fastapi import APIRouter, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
-from typing import Optional
 
 from services.pdf_service import validate_pdf
 from services.shipping_service import (
-    ai_extract_shipping_data,
     group_records,
     separate_pdf_by_groups,
 )
 from services.storage_service import storage
 from services.file_record_service import get_accessible_file_record
 from services.reducto_extraction_service import reducto_extract_shipping_data
+from services.credit_service import Reservation, pages_cost
 from services.metrics_service import increment
 
 router = APIRouter()
@@ -19,7 +18,6 @@ router = APIRouter()
 
 class ShippingExtractRequest(BaseModel):
     file_id: str
-    engine: Optional[str] = None
 
 
 class ShippingSeparateRequest(BaseModel):
@@ -32,19 +30,21 @@ class ShippingSeparateRequest(BaseModel):
 async def extract_shipping_data(req: ShippingExtractRequest, request: Request):
     if not get_accessible_file_record(req.file_id, request.state.user):
         return {"success": False, "data": None, "error": "File record not found"}
-    engine = req.engine or "claude"
-    if engine not in ("claude", "reducto"):
-        return {"success": False, "data": None, "error": f"Unknown extraction engine: {engine}"}
+
+    record = get_accessible_file_record(req.file_id, request.state.user) or {}
+    user_id = request.state.user["id"]
+    estimated = record.get("page_count") or 1
 
     def _extract() -> list:
         path = storage.get_upload_path(req.file_id)
         validate_pdf(path)
-        records = reducto_extract_shipping_data(path) if engine == "reducto" else ai_extract_shipping_data(path)
-        increment(f"pages_extracted_{engine}", len(records))
+        with Reservation(user_id, pages_cost(estimated), "Shipping extraction", req.file_id) as r:
+            records = reducto_extract_shipping_data(path)
+            r.actual = pages_cost(len(records))
+        increment("pages_extracted_reducto", len(records))
         return records
 
-    # The Claude API call inside ai_extract_shipping_data is a blocking
-    # network request that can take many seconds — run it off the event loop.
+    # Reducto's call is a blocking network request — run it off the event loop.
     try:
         records = await run_in_threadpool(_extract)
         return {

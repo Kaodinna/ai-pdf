@@ -49,9 +49,11 @@ def _seed_from_env_if_empty() -> None:
     }])
 
 
-def list_mailboxes(include_password: bool = False) -> list[dict]:
+def list_mailboxes(include_password: bool = False, company_id: str | None = None) -> list[dict]:
     _seed_from_env_if_empty()
     boxes = _load()
+    if company_id is not None:
+        boxes = [b for b in boxes if b.get("company_id") == company_id]
     if include_password:
         return boxes
     return [{k: v for k, v in b.items() if k != "password"} for b in boxes]
@@ -69,8 +71,10 @@ def create_mailbox(
     password: str,
     template_id: str | None = None,
     template_name: str | None = None,
+    company_id: str | None = None,
 ) -> dict:
     mailbox = {
+        "company_id": company_id,
         "id": str(uuid.uuid4()),
         "label": label,
         "host": host,

@@ -25,12 +25,19 @@ def get_file_record(file_id: str) -> dict | None:
     return next((r for r in _load() if r["id"] == file_id), None)
 
 
+from services.company_service import is_platform_owner
+
+
 def can_access(record: dict, user: dict) -> bool:
-    """Strict per-user isolation: an admin sees everything; everyone else
-    only sees files they own, or files assigned to them (name or email) as
-    part of the approval workflow. Unowned files (no direct-upload owner —
-    e.g. mailbox ingestion) are admin-only until claimed via assignment."""
+    """Companies are walled off from each other: nothing crosses a company
+    boundary except for the platform owner. Inside a company, an admin sees
+    every file; everyone else sees only files they own or that are assigned to
+    them. Unowned files (e.g. mailbox ingestion) are admin-only until claimed."""
     if not record or not user:
+        return False
+    if is_platform_owner(user):
+        return True
+    if not record.get("company_id") or record.get("company_id") != user.get("company_id"):
         return False
     if user.get("role") == "admin":
         return True
@@ -59,6 +66,7 @@ def create_file_record(
     owner_id: str | None = None,
     owner_email: str | None = None,
     owner_name: str | None = None,
+    company_id: str | None = None,
 ) -> dict:
     record = {
         "id": file_id,
@@ -68,6 +76,7 @@ def create_file_record(
         # None owner (e.g. mailbox-ingested files) means no single app-user
         # created it — access.can_access() treats those as admin-only until
         # someone claims/assigns it.
+        "company_id": company_id,
         "owner_id": owner_id,
         "owner_email": owner_email,
         "owner_name": owner_name,

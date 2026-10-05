@@ -151,11 +151,8 @@ function ReextractModal({
 }) {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [templateId, setTemplateId] = useState(initialTemplateId ?? record.template_id ?? "");
-  const [engine, setEngine] = useState(""); // "" = use the template's own default
   const [extracting, setExtracting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const templateDefaultEngine = templates.find((t) => t.id === templateId)?.extraction_engine ?? "claude";
 
   useEffect(() => {
     getTemplates().then((res) => {
@@ -170,7 +167,7 @@ function ReextractModal({
     if (!templateId) { setError("Select a template"); return; }
     setExtracting(true);
     setError(null);
-    const res = await extractTemplateData(templateId, record.id, undefined, engine || undefined);
+    const res = await extractTemplateData(templateId, record.id);
     setExtracting(false);
     if (!res.success || !res.data) { setError(res.error ?? "Extraction failed"); return; }
     // Build updated record from result
@@ -221,15 +218,6 @@ function ReextractModal({
             </select>
           )}
         </div>
-        <div>
-          <label className="text-xs font-medium text-gray-600 block mb-1">Extraction engine</label>
-          <select value={engine} onChange={(e) => setEngine(e.target.value)}
-            className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 ring-blue-400 bg-white">
-            <option value="">Template default ({templateDefaultEngine === "reducto" ? "Reducto" : "Claude"})</option>
-            <option value="claude">Claude — full tuning (synonyms, learned corrections, evidence notes)</option>
-            <option value="reducto">Reducto — faster and cheaper per page</option>
-          </select>
-        </div>
         <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
           This will overwrite all existing extracted field data for this file.
         </p>
@@ -260,14 +248,13 @@ function SmartExtractModal({
   onClose: () => void;
   onExtracted: (updated: FileRecord) => void;
 }) {
-  const [engine, setEngine] = useState("claude");
   const [extracting, setExtracting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleExtract = async () => {
     setExtracting(true);
     setError(null);
-    const res = await smartExtract(record.id, undefined, engine);
+    const res = await smartExtract(record.id);
     setExtracting(false);
     if (!res.success || !res.data) { setError(res.error ?? "Extraction failed"); return; }
     const pages = res.data.pages;
@@ -309,16 +296,8 @@ function SmartExtractModal({
         </div>
         {error && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">{error}</p>}
         <p className="text-sm text-gray-700">
-          The AI will analyse this document, infer its type, and extract all key fields and tables automatically — no template needed.
+          Reducto will analyse this document, infer its type, and extract all key fields and tables automatically — no template needed.
         </p>
-        <div>
-          <label className="text-xs font-medium text-gray-600 block mb-1">Extraction engine</label>
-          <select value={engine} onChange={(e) => setEngine(e.target.value)} disabled={extracting}
-            className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 ring-teal-400 bg-white">
-            <option value="claude">Claude — open-ended reading, adds an evidence note per field</option>
-            <option value="reducto">Reducto — faster and cheaper per page</option>
-          </select>
-        </div>
         <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
           This will overwrite any existing extracted field data.
         </p>
@@ -880,7 +859,7 @@ function FileDetailView({
             </svg>
             Smart Extract
           </button>
-          <button onClick={() => setShowReextract(true)}
+          <button data-tour="reextract" onClick={() => setShowReextract(true)}
             className="flex items-center gap-1.5 text-xs border text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors">
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -892,7 +871,7 @@ function FileDetailView({
               {needsReviewCount === 0 ? "all fields approved" : `${needsReviewCount}/${metaCount} need review`}
             </span>
           )}
-          <div className="flex items-center rounded-lg border overflow-hidden">
+          <div data-tour="decision" className="flex items-center rounded-lg border overflow-hidden">
             <button onClick={() => handleRecordDecision("approved")} disabled={decisioning}
               className={`text-xs px-3 py-1.5 font-medium transition-colors disabled:opacity-50
                 ${record.decision === "approved" ? "bg-green-600 text-white" : "text-green-700 hover:bg-green-50"}`}>

@@ -29,6 +29,7 @@ from services.file_record_service import create_file_record, update_file_record
 from services.inbox_service import create_inbox_record
 from services.audit_service import log_event
 from services.mailbox_config_service import list_mailboxes
+from services.request_context import company_scope
 from services.extraction_service import run_template_extraction
 
 STATE_FILE = Path(__file__).parent.parent / "data" / "mailbox_state.json"
@@ -85,7 +86,7 @@ def _extract_body_preview(msg: email.message.Message, limit: int = 500) -> str:
     return ""
 
 
-def _ingest_attachment(filename: str, content: bytes, template_id: str | None, template_name: str | None) -> tuple[str, int] | None:
+def _ingest_attachment(filename: str, content: bytes, template_id: str | None, template_name: str | None, company_id: str | None = None) -> tuple[str, int] | None:
     """Run one attachment through the same pipeline as a manual upload. Returns (file_id, page_count) or None if unsupported."""
     if not filename or not is_supported(filename):
         return None
@@ -97,7 +98,7 @@ def _ingest_attachment(filename: str, content: bytes, template_id: str | None, t
     validate_pdf(path)
     page_count = get_page_count(path)
     extract_text_per_page(path)
-    create_file_record(file_id, filename, len(content), page_count)
+    create_file_record(file_id, filename, len(content), page_count, company_id=company_id)
     if template_id:
         try:
             # The mailbox this attachment arrived on is mapped to a template
@@ -166,7 +167,7 @@ def _poll_one_mailbox(box: dict, state: dict) -> dict:
                     if not filename or not payload:
                         continue
                     try:
-                        result = _ingest_attachment(filename, payload, box.get("template_id"), box.get("template_name"))
+                        result = _ingest_attachment(filename, payload, box.get("template_id"), box.get("template_name"), box.get("company_id"))
                         if result:
                             fid, page_count = result
                             file_ids.append(fid)
@@ -175,7 +176,7 @@ def _poll_one_mailbox(box: dict, state: dict) -> dict:
                     except Exception:
                         continue  # one bad attachment shouldn't drop the whole email
 
-            create_inbox_record(sender, subject, received_at, body_preview, file_ids, total_pages)
+            create_inbox_record(sender, subject, received_at, body_preview, file_ids, total_pages, company_id=box.get("company_id"))
             ingested += 1
 
         state[box["id"]] = max(new_uids) if new_uids else last_uid
@@ -187,9 +188,9 @@ def _poll_one_mailbox(box: dict, state: dict) -> dict:
             pass
 
 
-def fetch_and_ingest() -> dict:
+def fetch_and_ingest(company_id: str | None = None) -> dict:
     """Poll every enabled mailbox and ingest anything new. Returns a combined summary."""
-    boxes = [b for b in list_mailboxes(include_password=True) if b.get("enabled", True)]
+    boxes = [b for b in list_mailboxes(include_password=True) if b.get("enabled", True) and (company_id is None or b.get("company_id") == company_id)]
     if not boxes:
         raise RuntimeError("No mailboxes are configured — add one under Inbox > Manage Mailboxes")
 
@@ -199,7 +200,8 @@ def fetch_and_ingest() -> dict:
 
     for box in boxes:
         try:
-            result = _poll_one_mailbox(box, state)
+            with company_scope(box.get("company_id")):
+                result = _poll_one_mailbox(box, state)
             totals["checked"] += result["checked"]
             totals["ingested"] += result["ingested"]
             totals["new_files"] += result["new_files"]

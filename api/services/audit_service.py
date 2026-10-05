@@ -3,6 +3,8 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
+from services.request_context import current_company
+
 DATA_DIR = Path(__file__).parent.parent / "data"
 DATA_DIR.mkdir(exist_ok=True)
 AUDIT_FILE = DATA_DIR / "audit_log.json"
@@ -27,9 +29,11 @@ def log_event(
     entity_name: str = "",
     user: str = "system",
     details: dict | None = None,
+    company_id: str | None = None,
 ) -> dict:
     entries = _load()
     entry = {
+        "company_id": company_id or current_company.get(),
         "id": str(uuid.uuid4()),
         "timestamp": datetime.utcnow().isoformat(),
         "action": action,
@@ -52,8 +56,12 @@ def list_events(
     action: str | None = None,
     limit: int = 200,
     offset: int = 0,
+    company_id: str | None = None,
+    all_companies: bool = False,
 ) -> list[dict]:
     entries = _load()
+    if not all_companies:
+        entries = [e for e in entries if e.get("company_id") == company_id]
     if entity_type:
         entries = [e for e in entries if e["entity_type"] == entity_type]
     if entity_id:
@@ -63,8 +71,10 @@ def list_events(
     return entries[offset: offset + limit]
 
 
-def get_summary() -> dict:
+def get_summary(company_id: str | None = None, all_companies: bool = False) -> dict:
     entries = _load()
+    if not all_companies:
+        entries = [e for e in entries if e.get("company_id") == company_id]
     actions: dict[str, int] = {}
     entity_types: dict[str, int] = {}
     for e in entries:

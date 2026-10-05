@@ -1,9 +1,12 @@
+import copy
 import json
 import uuid
 import hashlib
 import secrets
 from datetime import datetime
 from pathlib import Path
+
+from services.request_context import current_company
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 DATA_DIR.mkdir(exist_ok=True)
@@ -41,15 +44,32 @@ ALL_PERMISSIONS = [
 ]
 
 
-def _load() -> dict:
+def _all() -> dict:
+    """One security config per company, keyed by company id. Files written before
+    company separation hold a single config at the top level; company_service
+    moves that under the Legacy company on startup."""
     if not SECURITY_FILE.exists():
-        _save(DEFAULT_CONFIG)
-        return DEFAULT_CONFIG
+        return {}
     return json.loads(SECURITY_FILE.read_text())
 
 
+def _company_key() -> str:
+    return current_company.get() or "__no_company__"
+
+
+def _load() -> dict:
+    everything = _all()
+    key = _company_key()
+    if key not in everything:
+        everything[key] = copy.deepcopy(DEFAULT_CONFIG)
+        SECURITY_FILE.write_text(json.dumps(everything, indent=2))
+    return everything[key]
+
+
 def _save(config: dict) -> None:
-    SECURITY_FILE.write_text(json.dumps(config, indent=2))
+    everything = _all()
+    everything[_company_key()] = config
+    SECURITY_FILE.write_text(json.dumps(everything, indent=2))
 
 
 def get_config() -> dict:

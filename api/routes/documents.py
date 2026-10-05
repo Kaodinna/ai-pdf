@@ -1,3 +1,4 @@
+from services.credit_service import run_metered, CLAUDE_COSTS
 from fastapi import APIRouter, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
@@ -32,7 +33,7 @@ async def group_documents(req: GroupDocumentsRequest, request: Request):
     def _group() -> dict:
         path = storage.get_upload_path(req.file_id)
         validate_pdf(path)
-        return ai_group_documents(path)
+        return run_metered(request.state.user["id"], CLAUDE_COSTS["group"], "Document grouping", ai_group_documents, path, ref=req.file_id)
 
     # The Claude API call inside ai_group_documents is a blocking network
     # request that can take many seconds — run it off the event loop.

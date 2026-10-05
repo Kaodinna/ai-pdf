@@ -17,8 +17,11 @@ def _save(records: list[dict]) -> None:
     INBOX_FILE.write_text(json.dumps(records, indent=2))
 
 
-def list_inbox() -> list[dict]:
-    return sorted(_load(), key=lambda r: r.get("received_at", ""), reverse=True)
+def list_inbox(company_id: str | None = None) -> list[dict]:
+    records = _load()
+    if company_id is not None:
+        records = [r for r in records if r.get("company_id") == company_id]
+    return sorted(records, key=lambda r: r.get("received_at", ""), reverse=True)
 
 
 def get_inbox_record(inbox_id: str) -> dict | None:
@@ -32,8 +35,10 @@ def create_inbox_record(
     body_preview: str,
     file_ids: list[str],
     page_count: int,
+    company_id: str | None = None,
 ) -> dict:
     record = {
+        "company_id": company_id,
         "id": str(uuid.uuid4()),
         "from": sender,
         "subject": subject,

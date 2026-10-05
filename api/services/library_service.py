@@ -1,4 +1,6 @@
 import json
+
+from services.request_context import current_company, visible
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -24,16 +26,17 @@ def _save(libraries: list[dict]) -> None:
 
 
 def list_libraries() -> list[dict]:
-    return _load()
+    return [lib for lib in _load() if visible(lib)]
 
 
 def get_library(library_id: str) -> dict | None:
-    return next((lib for lib in _load() if lib["id"] == library_id), None)
+    return next((lib for lib in _load() if lib["id"] == library_id and visible(lib)), None)
 
 
 def create_library(name: str, description: str = "", columns: list[str] | None = None) -> dict:
     libraries = _load()
     library = {
+        "company_id": current_company.get(),
         "id": str(uuid.uuid4()),
         "name": name,
         "description": description,
@@ -50,7 +53,7 @@ def create_library(name: str, description: str = "", columns: list[str] | None =
 def update_library(library_id: str, updates: dict) -> dict | None:
     libraries = _load()
     for lib in libraries:
-        if lib["id"] == library_id:
+        if lib["id"] == library_id and visible(lib):
             for k, v in updates.items():
                 if k not in ("id", "created_at"):
                     lib[k] = v
@@ -62,7 +65,7 @@ def update_library(library_id: str, updates: dict) -> dict | None:
 
 def delete_library(library_id: str) -> bool:
     libraries = _load()
-    filtered = [lib for lib in libraries if lib["id"] != library_id]
+    filtered = [lib for lib in libraries if not (lib["id"] == library_id and visible(lib))]
     if len(filtered) == len(libraries):
         return False
     _save(filtered)
@@ -73,7 +76,7 @@ def delete_library(library_id: str) -> bool:
 def add_row(library_id: str, row: dict) -> dict | None:
     libraries = _load()
     for lib in libraries:
-        if lib["id"] == library_id:
+        if lib["id"] == library_id and visible(lib):
             row["_id"] = str(uuid.uuid4())
             lib["rows"].append(row)
             lib["updated_at"] = datetime.utcnow().isoformat()
@@ -86,7 +89,7 @@ def add_row(library_id: str, row: dict) -> dict | None:
 def update_row(library_id: str, row_id: str, row: dict) -> dict | None:
     libraries = _load()
     for lib in libraries:
-        if lib["id"] == library_id:
+        if lib["id"] == library_id and visible(lib):
             for i, r in enumerate(lib["rows"]):
                 if r.get("_id") == row_id:
                     row["_id"] = row_id
@@ -101,7 +104,7 @@ def update_row(library_id: str, row_id: str, row: dict) -> dict | None:
 def delete_row(library_id: str, row_id: str) -> dict | None:
     libraries = _load()
     for lib in libraries:
-        if lib["id"] == library_id:
+        if lib["id"] == library_id and visible(lib):
             lib["rows"] = [r for r in lib["rows"] if r.get("_id") != row_id]
             lib["updated_at"] = datetime.utcnow().isoformat()
             _save(libraries)
@@ -114,7 +117,7 @@ def import_csv_rows(library_id: str, csv_text: str) -> dict | None:
     import csv, io
     libraries = _load()
     for lib in libraries:
-        if lib["id"] == library_id:
+        if lib["id"] == library_id and visible(lib):
             reader = csv.DictReader(io.StringIO(csv_text))
             if reader.fieldnames:
                 lib["columns"] = list(reader.fieldnames)
@@ -155,7 +158,7 @@ def reindex_search(library_id: str) -> dict | None:
 def _record_cache_hit(library_id: str, row: dict) -> None:
     libraries = _load()
     for lib in libraries:
-        if lib["id"] == library_id:
+        if lib["id"] == library_id and visible(lib):
             cache = lib.setdefault("cache", [])
             if any(c.get("_row_id") == row.get("_id") for c in cache):
                 return
@@ -177,7 +180,7 @@ def clear_cache(library_id: str) -> dict | None:
 def delete_cache_row(library_id: str, cache_row_id: str) -> dict | None:
     libraries = _load()
     for lib in libraries:
-        if lib["id"] == library_id:
+        if lib["id"] == library_id and visible(lib):
             lib["cache"] = [c for c in lib.get("cache", []) if c.get("_id") != cache_row_id]
             _save(libraries)
             return lib

@@ -2,6 +2,8 @@ import json
 import uuid
 from pathlib import Path
 
+from services.request_context import current_company, visible
+
 WORKFLOW_FILE = Path(__file__).parent.parent / "data" / "workflow.json"
 WORKFLOW_FILE.parent.mkdir(parents=True, exist_ok=True)
 
@@ -25,13 +27,31 @@ def _save(states: list[dict]) -> None:
     WORKFLOW_FILE.write_text(json.dumps(states, indent=2))
 
 
+def _visible_states(states: list[dict]) -> list[dict]:
+    return [s for s in states if visible(s)]
+
+
+def _ensure_company_defaults() -> None:
+    """A company's first use of workflow gets its own copy of the default stages."""
+    company = current_company.get()
+    if not company or _visible_states(_load()):
+        return
+    states = _load()
+    for i, d in enumerate(DEFAULT_STATES):
+        states.append({**d, "id": str(uuid.uuid4()), "company_id": company, "order": i})
+    _save(states)
+
+
 def list_states() -> list[dict]:
-    return sorted(_load(), key=lambda s: s.get("order", 0))
+    _ensure_company_defaults()
+    return sorted(_visible_states(_load()), key=lambda s: s.get("order", 0))
 
 
 def add_state(name: str) -> dict:
+    _ensure_company_defaults()
     states = _load()
-    new_state = {"id": str(uuid.uuid4()), "name": name, "order": len(states)}
+    mine = _visible_states(states)
+    new_state = {"id": str(uuid.uuid4()), "name": name, "order": len(mine), "company_id": current_company.get()}
     states.append(new_state)
     _save(states)
     return new_state
@@ -40,7 +60,7 @@ def add_state(name: str) -> dict:
 def update_state(state_id: str, name: str) -> dict | None:
     states = _load()
     for i, s in enumerate(states):
-        if s["id"] == state_id:
+        if s["id"] == state_id and visible(s):
             states[i] = {**s, "name": name}
             _save(states)
             return states[i]
@@ -49,17 +69,21 @@ def update_state(state_id: str, name: str) -> dict | None:
 
 def delete_state(state_id: str) -> bool:
     states = _load()
-    new_list = [s for s in states if s["id"] != state_id]
+    new_list = [s for s in states if not (s["id"] == state_id and visible(s))]
     if len(new_list) == len(states):
         return False
-    for i, s in enumerate(new_list):
-        s["order"] = i
+    order = 0
+    for s in new_list:
+        if visible(s):
+            s["order"] = order
+            order += 1
     _save(new_list)
     return True
 
 
 def reorder_states(ordered_ids: list[str]) -> list[dict]:
-    states = _load()
+    all_states = _load()
+    states = _visible_states(all_states)
     by_id = {s["id"]: s for s in states}
     reordered = []
     for i, sid in enumerate(ordered_ids):
@@ -70,5 +94,6 @@ def reorder_states(ordered_ids: list[str]) -> list[dict]:
     for s in states:
         if s["id"] not in seen:
             reordered.append({**s, "order": len(reordered)})
-    _save(reordered)
+    others = [s for s in all_states if not visible(s)]
+    _save(others + reordered)
     return sorted(reordered, key=lambda s: s["order"])

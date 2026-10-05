@@ -120,6 +120,7 @@ async def promote_split_output(req: PromoteRequest, request: Request):
         create_file_record(
             file_id, display_name, len(content), page_count,
             owner_id=user["id"], owner_email=user.get("email"), owner_name=user.get("name"),
+            company_id=user.get("company_id"),
         )
         return {"success": True, "data": {"file_id": file_id, "page_count": page_count}, "error": None}
     except FileNotFoundError as e:

@@ -53,9 +53,8 @@ export default function ProposeTemplateModal({
   onClose: () => void;
   onCreated: (template: Template) => void;
 }) {
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [engine, setEngine] = useState<string | null>(null); // null = not chosen yet, nothing runs
   const [name, setName] = useState("");
   const [templateType, setTemplateType] = useState("");
   const [fields, setFields] = useState<string[]>([]);
@@ -64,14 +63,13 @@ export default function ProposeTemplateModal({
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    // A newer run (engine switched, or the effect re-fired) makes this one stale —
-    // its late response must not overwrite the newer draft.
-    if (!engine) return;
+    // A re-fired effect (e.g. dev-mode double-invoke) makes an earlier run
+    // stale — its late response must not overwrite the newer draft.
     let stale = false;
     (async () => {
       setLoading(true);
       setError(null);
-      const res = await proposeTemplate(fileId, engine);
+      const res = await proposeTemplate(fileId);
       if (stale) return;
       setLoading(false);
       if (!res.success || !res.data) {
@@ -84,7 +82,7 @@ export default function ProposeTemplateModal({
       setTableFields(res.data.table_fields);
     })();
     return () => { stale = true; };
-  }, [fileId, engine]);
+  }, [fileId]);
 
   const handleSave = async () => {
     if (!name.trim() || !templateType.trim()) return;
@@ -108,14 +106,6 @@ export default function ProposeTemplateModal({
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl max-h-[85vh] flex flex-col">
         <div className="flex items-center justify-between px-5 py-4 border-b">
           <h3 className="text-sm font-semibold text-gray-800">Create Template From This Document</h3>
-          {engine && (
-            <select value={engine} onChange={(e) => setEngine(e.target.value)} disabled={loading}
-              title="Which AI engine read the document. Switching re-reads it and replaces the draft below."
-              className="ml-auto mr-3 border rounded-lg px-2 py-1 text-xs bg-white outline-none focus:ring-1 ring-blue-400 disabled:opacity-50">
-              <option value="claude">Claude</option>
-              <option value="reducto">Reducto (faster, cheaper)</option>
-            </select>
-          )}
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700">
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -124,29 +114,8 @@ export default function ProposeTemplateModal({
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
-          {!engine ? (
-            <div className="py-6 space-y-4">
-              <p className="text-sm text-gray-700">
-                Pick which AI engine should read this document and draft a template from its first pages.
-              </p>
-              <div className="grid grid-cols-2 gap-3">
-                <button onClick={() => setEngine("claude")}
-                  className="text-left border rounded-xl p-4 hover:border-blue-400 hover:bg-blue-50/40 transition-colors">
-                  <p className="text-sm font-semibold text-gray-800">Read with Claude</p>
-                  <p className="text-xs text-gray-500 mt-1">Cleaner field names and more fields picked up. Takes around a minute.</p>
-                </button>
-                <button onClick={() => setEngine("reducto")}
-                  className="text-left border rounded-xl p-4 hover:border-blue-400 hover:bg-blue-50/40 transition-colors">
-                  <p className="text-sm font-semibold text-gray-800">Read with Reducto</p>
-                  <p className="text-xs text-gray-500 mt-1">Faster and cheaper per page. Field names follow the printed labels more literally.</p>
-                </button>
-              </div>
-            </div>
-          ) : loading ? (
-            <p className="text-xs text-gray-400 text-center py-10">
-              Reading the first pages of the document…<br />
-              <span className="text-[11px]">This can take a minute or two with Claude; Reducto is usually much faster.</span>
-            </p>
+          {loading ? (
+            <p className="text-xs text-gray-400 text-center py-10">Reading the first pages of the document…</p>
           ) : error ? (
             <p className="text-xs text-red-600 text-center py-10">{error}</p>
           ) : (

@@ -4,16 +4,18 @@ from pydantic import BaseModel
 from typing import Optional
 
 from services.template_service import (
+    list_templates_for, get_template_for,
     list_templates, get_template, create_template, update_template, delete_template,
     copy_field_config_from, add_comment, list_comments, keyword_match_template,
 )
-from services.ai_service import ai_apply_template, ai_detect_doc_type, ai_refine_extraction, ai_smart_extract
+from services.ai_service import ai_apply_template, ai_detect_doc_type, ai_refine_extraction
 from services.pdf_service import validate_pdf, extract_selected_pages, extract_text_per_page
 from services.storage_service import storage
 from services.file_record_service import update_file_record, get_accessible_file_record
 from services.audit_service import log_event
 from services.extraction_service import run_template_extraction
 from services.reducto_extraction_service import reducto_smart_extract
+from services.credit_service import Reservation, pages_cost, run_metered, CLAUDE_COSTS
 from services.metrics_service import increment
 
 router = APIRouter()
@@ -29,7 +31,6 @@ class TemplateCreate(BaseModel):
     special_conditions: list[str] = []
     field_synonyms: dict[str, list[str]] = {}
     unique_id_fields: list[str] = []
-    extraction_engine: str = "claude"
 
 
 class ApplyTemplateRequest(BaseModel):
@@ -38,7 +39,6 @@ class ApplyTemplateRequest(BaseModel):
 
 class ProposeTemplateRequest(BaseModel):
     file_id: str
-    engine: Optional[str] = None
 
 
 class DetectDocTypeRequest(BaseModel):
@@ -49,7 +49,6 @@ class DetectDocTypeRequest(BaseModel):
 class ExtractDataRequest(BaseModel):
     file_id: str
     page_numbers: Optional[list[int]] = None
-    engine: Optional[str] = None
 
 
 class RefineExtractionRequest(BaseModel):
@@ -70,7 +69,6 @@ class TemplateUpdate(BaseModel):
     secondary_id_fields: Optional[list[str]] = None
     reference_id_fields: Optional[list[str]] = None
     editable_in_file: Optional[bool] = None
-    extraction_engine: Optional[str] = None
 
 
 class CopyFromRequest(BaseModel):
@@ -83,16 +81,16 @@ class CommentCreate(BaseModel):
 
 
 @router.get("/templates")
-async def get_templates():
+async def get_templates(request: Request):
     try:
-        templates = list_templates()
+        templates = list_templates_for(request.state.user)
         return {"success": True, "data": templates, "error": None}
     except Exception as e:
         return {"success": False, "data": None, "error": str(e)}
 
 
 @router.post("/templates")
-async def save_template(body: TemplateCreate):
+async def save_template(body: TemplateCreate, request: Request):
     if not body.name.strip() or not body.template_type.strip():
         return {"success": False, "data": None, "error": "name and template_type are required"}
     try:
@@ -104,7 +102,7 @@ async def save_template(body: TemplateCreate):
             body.special_conditions,
             body.field_synonyms,
             unique_id_fields=body.unique_id_fields,
-            extraction_engine=body.extraction_engine,
+            company_id=request.state.user.get("company_id"),
         )
         return {"success": True, "data": template, "error": None}
     except Exception as e:
@@ -116,7 +114,7 @@ async def detect_doc_type(body: DetectDocTypeRequest, request: Request):
     try:
         if not get_accessible_file_record(body.file_id, request.state.user):
             return {"success": False, "data": None, "error": "File record not found"}
-        all_templates = list_templates()
+        all_templates = list_templates_for(request.state.user)
         templates = (
             [t for t in all_templates if t["id"] in body.template_ids]
             if body.template_ids
@@ -128,7 +126,7 @@ async def detect_doc_type(body: DetectDocTypeRequest, request: Request):
         def _detect() -> dict:
             path = storage.get_upload_path(body.file_id)
             validate_pdf(path)
-            return ai_detect_doc_type(path, templates)
+            return run_metered(request.state.user["id"], CLAUDE_COSTS["detect"], "Template detection", ai_detect_doc_type, path, templates, ref=body.file_id)
 
         # The Claude API call inside ai_detect_doc_type is a blocking network
         # request that can take many seconds — run it off the event loop.
@@ -153,7 +151,7 @@ async def suggest_template(body: ApplyTemplateRequest, request: Request):
     try:
         if not get_accessible_file_record(body.file_id, request.state.user):
             return {"success": False, "data": None, "error": "File record not found"}
-        all_templates = list_templates()
+        all_templates = list_templates_for(request.state.user)
         if not all_templates:
             return {"success": True, "data": {"template_id": None, "template_name": None, "pages": []}, "error": None}
 
@@ -173,7 +171,7 @@ async def suggest_template(body: ApplyTemplateRequest, request: Request):
 
             # ── Fall back to the AI-based detector (needed for scans, or
             # when the keyword pass found no confident/unambiguous match) ──
-            return {"source": "ai_detect", "result": ai_detect_doc_type(path, all_templates)}
+            return {"source": "ai_detect", "result": run_metered(request.state.user["id"], CLAUDE_COSTS["detect"], "Template detection", ai_detect_doc_type, path, all_templates, ref=body.file_id)}
 
         # Text extraction and the Claude API call are both blocking work
         # that can take real time on large/scanned documents — run off the
@@ -258,9 +256,8 @@ async def propose_template(body: ProposeTemplateRequest, request: Request):
         if not get_accessible_file_record(body.file_id, request.state.user):
             return {"success": False, "data": None, "error": "File record not found"}
 
-        engine = body.engine or "claude"
-        if engine not in ("claude", "reducto"):
-            return {"success": False, "data": None, "error": f"Unknown extraction engine: {engine}"}
+        user_id = request.state.user["id"]
+        page_count = (get_accessible_file_record(body.file_id, request.state.user) or {}).get("page_count") or 1
 
         def _propose() -> dict:
             path = storage.get_upload_path(body.file_id)
@@ -268,15 +265,15 @@ async def propose_template(body: ProposeTemplateRequest, request: Request):
             # A draft only needs a representative sample — reading every page of
             # a long bundle multiplies time and cost for the same field names.
             sample = list(range(1, PROPOSE_SAMPLE_PAGES + 1))
-            if engine == "reducto":
-                return reducto_smart_extract(path, sample)
-            return ai_smart_extract(path, sample)
+            with Reservation(user_id, pages_cost(min(len(sample), page_count)), "Template draft", body.file_id) as r:
+                result = reducto_smart_extract(path, sample, list_templates_for(request.state.user))
+                r.actual = pages_cost(len(result.get("pages", [])))
+            return result
 
-        # The Claude API call inside ai_smart_extract is a blocking network
-        # request that can take many seconds — run it off the event loop.
+        # Reducto's call is a blocking network request — run it off the event loop.
         result = await run_in_threadpool(_propose)
         pages = result.get("pages", [])
-        increment(f"pages_extracted_{engine}", len(pages))
+        increment("pages_extracted_reducto", len(pages))
         if not pages:
             return {"success": False, "data": None, "error": "Nothing to propose — the document has no readable pages"}
 
@@ -357,7 +354,7 @@ async def apply_template(template_id: str, body: ApplyTemplateRequest, request: 
         def _apply() -> tuple[dict, str | None]:
             path = storage.get_upload_path(body.file_id)
             validate_pdf(path)
-            result = ai_apply_template(path, template)
+            result = run_metered(request.state.user["id"], CLAUDE_COSTS["apply"], "Find pages for template", ai_apply_template, path, template, ref=body.file_id)
             pages = result.get("pages_to_keep", [])
 
             dl_url = None
@@ -398,7 +395,7 @@ async def extract_template_data(template_id: str, body: ExtractDataRequest, requ
         # The Claude API call inside run_template_extraction is a blocking
         # network request that can take many seconds — run it off the event
         # loop so it doesn't stall every other in-flight request.
-        data = await run_in_threadpool(run_template_extraction, template_id, body.file_id, body.page_numbers, body.engine)
+        data = await run_in_threadpool(run_template_extraction, template_id, body.file_id, body.page_numbers, request.state.user["id"])
         return {"success": True, "data": data, "error": None}
     except FileNotFoundError as e:
         return {"success": False, "data": None, "error": str(e)}
@@ -409,7 +406,9 @@ async def extract_template_data(template_id: str, body: ExtractDataRequest, requ
 
 
 @router.post("/templates/{template_id}/copy-from")
-async def copy_from(template_id: str, body: CopyFromRequest):
+async def copy_from(template_id: str, body: CopyFromRequest, request: Request):
+    if not get_template_for(body.source_template_id, request.state.user):
+        return {"success": False, "data": None, "error": "Template not found"}
     try:
         updated = copy_field_config_from(template_id, body.source_template_id)
         if not updated:
@@ -452,7 +451,9 @@ async def refine_extraction(template_id: str, body: RefineExtractionRequest, req
         def _refine() -> dict:
             path = storage.get_upload_path(body.file_id)
             validate_pdf(path)
-            return ai_refine_extraction(
+            return run_metered(
+                request.state.user["id"], CLAUDE_COSTS["refine"], "Refine with AI",
+                ai_refine_extraction,
                 path,
                 body.page_number,
                 body.current_fields,
@@ -460,6 +461,7 @@ async def refine_extraction(template_id: str, body: RefineExtractionRequest, req
                 body.instructions,
                 template.get("template_type", "document"),
                 body.mode,
+                ref=body.file_id,
             )
 
         # The Claude API call inside ai_refine_extraction is a blocking

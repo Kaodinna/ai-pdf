@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { uploadPdf, suggestTemplate, getMe, logout as apiLogout, setUnauthorizedHandler } from "@/lib/api";
+import { uploadPdf, suggestTemplate, getMe, getBilling, logout as apiLogout, setUnauthorizedHandler } from "@/lib/api";
 import type { UploadResult, AuthUser } from "@/lib/api";
 import LoginPage from "@/components/LoginPage";
 import LandingPage from "@/components/LandingPage";
@@ -27,11 +27,14 @@ import ReconciliationPanel from "@/components/ReconciliationPanel";
 import LearningDashboard from "@/components/LearningDashboard";
 import DocumentTypeConfig from "@/components/DocumentTypeConfig";
 import SmartInbox from "@/components/SmartInbox";
+import BillingPanel from "@/components/BillingPanel";
+import OnboardingTour, { restartTour } from "@/components/OnboardingTour";
+import { FEATURE_HELP } from "@/components/FeatureHelp";
 
 type Tab =
   | "split" | "merge" | "ai" | "templates" | "shipping" | "inbox"
   | "documents" | "files" | "workflow" | "rules" | "library" | "learning" | "docTypes"
-  | "security" | "export" | "audit" | "analytics" | "duplicates" | "reconciliation";
+  | "security" | "export" | "audit" | "analytics" | "duplicates" | "reconciliation" | "billing";
 
 function formatBytes(b: number) {
   if (b < 1024) return `${b} B`;
@@ -235,9 +238,13 @@ const NAV_GROUPS = [
       { key: "reconciliation" as Tab, label: "Reconcile", icon: IconReconcile },
       { key: "export" as Tab, label: "Export", icon: IconExport },
       { key: "audit" as Tab, label: "Audit Log", icon: IconAudit },
+      { key: "billing" as Tab, label: "Billing & Credits", icon: IconExport },
     ],
   },
 ];
+
+// Tabs staff can't open. Mirrors the server-side restriction in api/main.py.
+const ADMIN_ONLY_TABS = new Set<string>(["workflow", "rules", "library", "docTypes", "security", "analytics"]);
 
 const PAGE_TITLES: Record<Tab, string> = {
   inbox: "Smart Inbox",
@@ -248,6 +255,7 @@ const PAGE_TITLES: Record<Tab, string> = {
   docTypes: "Document Types",
   security: "Security", export: "Export", audit: "Audit Log",
   analytics: "Analytics", duplicates: "Duplicates", reconciliation: "Reconcile",
+  billing: "Billing & Credits",
 };
 
 // ── Compact upload card ────────────────────────────────────────────────────
@@ -358,6 +366,28 @@ function UploadCard({
   );
 }
 
+// ── Credits chip ─────────────────────────────────────────────────────────
+
+function CreditsChip({ onOpen }: { onOpen: () => void }) {
+  const [balance, setBalance] = useState<number | null>(null);
+  useEffect(() => {
+    const refresh = () => getBilling().then((r) => { if (r.success && r.data) setBalance(r.data.balance); });
+    refresh();
+    window.addEventListener("credits-changed", refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.removeEventListener("credits-changed", refresh);
+      window.removeEventListener("focus", refresh);
+    };
+  }, []);
+  return (
+    <button onClick={onOpen} title="Credits available — click to buy more"
+      className="text-xs font-medium text-blue-800 bg-blue-50 border border-blue-200 rounded-lg px-2.5 py-1.5 hover:bg-blue-100 tabular-nums">
+      {balance === null ? "Credits…" : `${balance.toLocaleString()} credits`}
+    </button>
+  );
+}
+
 // ── User menu ────────────────────────────────────────────────────────────
 
 function UserMenu({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
@@ -375,7 +405,7 @@ function UserMenu({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
 
   return (
     <div className="relative" ref={ref}>
-      <button onClick={() => setOpen((v) => !v)}
+      <button data-tour="user-menu" onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-2 pl-1 pr-2.5 py-1 rounded-lg hover:bg-gray-100 transition-colors">
         <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-[11px] font-semibold flex items-center justify-center flex-shrink-0">
           {user.name.slice(0, 1).toUpperCase()}
@@ -394,6 +424,10 @@ function UserMenu({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
               Manage Users
             </button>
           )}
+          <button onClick={() => { restartTour(); setOpen(false); }}
+            className="w-full text-left px-3 py-2 text-xs text-gray-600 hover:bg-gray-50">
+            Show the getting-started tour
+          </button>
           <button onClick={onLogout}
             className="w-full text-left px-3 py-2 text-xs text-red-600 hover:bg-red-50">
             Log out
@@ -408,6 +442,8 @@ function UserMenu({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
 // ── Main app ───────────────────────────────────────────────────────────────
 
 function AppShell({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
+  const [navHelp, setNavHelp] = useState<{ key: string; top: number; left: number } | null>(null);
+  const isAdmin = user.role === "admin";
   const [file, setFile] = useState<File | null>(null);
   const [uploadResult, setUploadResult] = useState<UploadResult | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -444,6 +480,14 @@ function AppShell({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
 
   return (
     <div className="flex h-screen bg-[#FAFAFB] overflow-hidden font-sans">
+      <OnboardingTour userId={user.id} isAdmin={user.role === "admin"} />
+      {navHelp && FEATURE_HELP[navHelp.key] && !sidebarCollapsed && (
+        <div className="fixed z-[55] w-[240px] -translate-y-1/2 bg-white border border-[#ECECEC] rounded-xl shadow-lg p-3 pointer-events-none"
+          style={{ top: navHelp.top, left: navHelp.left }}>
+          <p className="text-xs font-semibold text-gray-900">{FEATURE_HELP[navHelp.key].title}</p>
+          <p className="text-[11px] text-gray-600 mt-1 leading-relaxed">{FEATURE_HELP[navHelp.key].body}</p>
+        </div>
+      )}
 
       {/* ── Sidebar ───────────────────────────────────────────────── */}
       <aside
@@ -466,7 +510,7 @@ function AppShell({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
 
         {/* Nav groups */}
         <nav className="flex-1 overflow-y-auto py-4 px-2 space-y-5">
-          {NAV_GROUPS.map((group) => (
+          {NAV_GROUPS.filter((g) => g.items.some((i) => isAdmin || !ADMIN_ONLY_TABS.has(i.key))).map((group) => (
             <div key={group.label}>
               {!sidebarCollapsed && (
                 <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest px-2 mb-1.5">
@@ -474,11 +518,17 @@ function AppShell({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
                 </p>
               )}
               <div className="space-y-0.5">
-                {group.items.map(({ key, label, icon: Icon }) => {
+                {group.items.filter((item) => isAdmin || !ADMIN_ONLY_TABS.has(item.key)).map(({ key, label, icon: Icon }) => {
                   const active = tab === key;
                   return (
                     <button
                       key={key}
+                      data-tour={`nav-${key}`}
+                      onMouseEnter={(e) => {
+                        const r = e.currentTarget.getBoundingClientRect();
+                        setNavHelp({ key, top: r.top + r.height / 2, left: r.right + 10 });
+                      }}
+                      onMouseLeave={() => setNavHelp(null)}
                       onClick={() => setTab(key)}
                       title={sidebarCollapsed ? label : undefined}
                       className={`w-full flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-[13px] font-medium transition-all duration-150
@@ -546,6 +596,7 @@ function AppShell({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
           )}
 
           <div className="flex items-center gap-2 flex-shrink-0">
+            <div data-tour="credits"><CreditsChip onOpen={() => setTab("billing")} /></div>
             <NotificationBell />
             <UserMenu user={user} onLogout={onLogout} />
           </div>
@@ -581,6 +632,7 @@ function AppShell({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
               {tab === "security" && <SecurityConfiguration />}
               {tab === "export" && <ExportPanel />}
               {tab === "audit" && <AuditLog />}
+              {tab === "billing" && <BillingPanel isAdmin={user.role === "admin"} />}
               {tab === "analytics" && <AnalyticsDashboard />}
               {tab === "duplicates" && <DuplicatesPanel />}
               {tab === "reconciliation" && <ReconciliationPanel />}

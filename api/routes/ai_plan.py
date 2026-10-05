@@ -1,3 +1,4 @@
+from services.credit_service import run_metered, CLAUDE_COSTS
 from fastapi import APIRouter, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
@@ -26,7 +27,7 @@ async def ai_plan(req: AIPlanRequest, request: Request):
     def _run_plan() -> dict:
         path = storage.get_upload_path(req.file_id)
         validate_pdf(path)
-        plan = ai_plan_from_instruction(path, req.instruction)
+        plan = run_metered(request.state.user["id"], CLAUDE_COSTS["ai_plan"], "AI command", ai_plan_from_instruction, path, req.instruction, ref=req.file_id)
 
         pages = plan.get("pages_to_keep", [])
         if pages:

@@ -17,17 +17,22 @@ def _save(memories: list[dict]) -> None:
     MEMORIES_FILE.write_text(json.dumps(memories, indent=2))
 
 
-def list_memories(doc_type: str | None = None) -> list[dict]:
+def list_memories(doc_type: str | None = None, company_id: str | None = None, all_companies: bool = False) -> list[dict]:
     memories = _load()
+    if not all_companies:
+        memories = [m for m in memories if m.get("company_id") == company_id]
     if doc_type:
         memories = [m for m in memories if m.get("doc_type") == doc_type]
     return sorted(memories, key=lambda m: m.get("created_at", ""), reverse=True)
 
 
-def get_active_memories(doc_type: str | None) -> list[dict]:
+def get_active_memories(doc_type: str | None, company_id: str | None) -> list[dict]:
+    """Only this company's corrections ever influence its extractions."""
     return [
         m for m in _load()
-        if m.get("active", True) and (not doc_type or m.get("doc_type") == doc_type)
+        if m.get("active", True)
+        and m.get("company_id") == company_id
+        and (not doc_type or m.get("doc_type") == doc_type)
     ]
 
 
@@ -38,8 +43,10 @@ def create_memory(
     corrected_value: str | None,
     reason: str,
     created_by: str = "system",
+    company_id: str | None = None,
 ) -> dict:
     memory = {
+        "company_id": company_id,
         "id": str(uuid.uuid4()),
         "field_name": field_name,
         "doc_type": doc_type,

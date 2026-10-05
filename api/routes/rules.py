@@ -1,4 +1,5 @@
-from fastapi import APIRouter
+from services.credit_service import run_metered, CLAUDE_COSTS
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 from typing import Optional
 
@@ -8,7 +9,7 @@ from services.rule_service import (
 )
 from services.rule_engine import evaluate_rule, collect_field_data, run_rules_on_file
 from services.ai_service import ai_generate_rule
-from services.file_record_service import get_file_record
+from services.file_record_service import get_file_record, get_accessible_file_record
 
 router = APIRouter()
 
@@ -119,23 +120,23 @@ async def remove_rule(rule_id: str):
 
 
 @router.post("/rules/generate")
-async def generate_rule(body: GenerateRuleRequest):
+async def generate_rule(body: GenerateRuleRequest, request: Request):
     try:
         sample_data = None
         if body.file_id:
-            record = get_file_record(body.file_id)
+            record = get_accessible_file_record(body.file_id, request.state.user)
             if record and record.get("pages"):
                 sample_data = collect_field_data(record["pages"])
-        result = ai_generate_rule(body.description, body.trigger_type, sample_data)
+        result = run_metered(request.state.user["id"], CLAUDE_COSTS["rule"], "Rule generation", ai_generate_rule, body.description, body.trigger_type, sample_data)
         return {"success": True, "data": result, "error": None}
     except Exception as e:
         return {"success": False, "data": None, "error": str(e)}
 
 
 @router.post("/rules/test")
-async def test_rule(body: TestRuleRequest):
+async def test_rule(body: TestRuleRequest, request: Request):
     try:
-        record = get_file_record(body.file_id)
+        record = get_accessible_file_record(body.file_id, request.state.user)
         if not record:
             return {"success": False, "data": None, "error": "File not found"}
         pages = record.get("pages", [])

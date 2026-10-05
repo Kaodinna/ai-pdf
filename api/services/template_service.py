@@ -38,7 +38,25 @@ def list_templates() -> list[dict]:
 
 
 def get_template(template_id: str) -> dict | None:
+    """Unscoped lookup. Only for internal jobs that already know the company; request
+    handlers must use get_template_for."""
     return next((t for t in _load() if t["id"] == template_id), None)
+
+
+def _template_visible(t: dict, user: dict) -> bool:
+    from services.company_service import is_platform_owner
+    if is_platform_owner(user):
+        return True
+    return bool(t.get("company_id")) and t.get("company_id") == user.get("company_id")
+
+
+def list_templates_for(user: dict) -> list[dict]:
+    return [t for t in _load() if _template_visible(t, user)]
+
+
+def get_template_for(template_id: str, user: dict) -> dict | None:
+    t = get_template(template_id)
+    return t if t and _template_visible(t, user) else None
 
 
 def keyword_match_template(text: str, templates: list[dict]) -> dict | None:
@@ -91,7 +109,7 @@ def create_template(
     secondary_id_fields: list[str] | None = None,
     reference_id_fields: list[str] | None = None,
     editable_in_file: bool = True,
-    extraction_engine: str = "claude",
+    company_id: str | None = None,
 ) -> dict:
     fc: dict = {}
     for fname in direct_link_fields:
@@ -123,7 +141,7 @@ def create_template(
         "secondary_id_fields": secondary_id_fields or [],
         "reference_id_fields": reference_id_fields or [],
         "editable_in_file": editable_in_file,
-        "extraction_engine": extraction_engine,
+        "company_id": company_id,
         "comments": [],
         "created_at": datetime.utcnow().isoformat(),
     }

@@ -1,4 +1,6 @@
 import json
+
+from services.request_context import current_company, visible
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -46,12 +48,27 @@ def _save(doc_types: list[dict]) -> None:
     DOC_TYPES_FILE.write_text(json.dumps(doc_types, indent=2))
 
 
+def _ensure_company_defaults() -> None:
+    """A company's first use of document types gets its own copy of the seeded set."""
+    company = current_company.get()
+    if not company:
+        return
+    items = _load()
+    if any(visible(d) for d in items):
+        return
+    for d in _seed():
+        d["company_id"] = company
+        items.append(d)
+    _save(items)
+
+
 def list_doc_types() -> list[dict]:
-    return _load()
+    _ensure_company_defaults()
+    return [d for d in _load() if visible(d)]
 
 
 def get_doc_type(doc_type_id: str) -> dict | None:
-    return next((d for d in _load() if d["id"] == doc_type_id), None)
+    return next((d for d in _load() if d["id"] == doc_type_id and visible(d)), None)
 
 
 def create_doc_type(
@@ -63,6 +80,7 @@ def create_doc_type(
     allow_processing: bool = False,
 ) -> dict:
     doc_type = {
+        "company_id": current_company.get(),
         "id": str(uuid.uuid4()),
         "document_type": document_type,
         "client_document_type": client_document_type,
@@ -82,7 +100,7 @@ def create_doc_type(
 def update_doc_type(doc_type_id: str, updates: dict) -> dict | None:
     doc_types = _load()
     for i, d in enumerate(doc_types):
-        if d["id"] == doc_type_id:
+        if d["id"] == doc_type_id and visible(d):
             doc_types[i] = {**d, **updates, "updated_at": datetime.utcnow().isoformat()}
             _save(doc_types)
             return doc_types[i]
@@ -91,7 +109,7 @@ def update_doc_type(doc_type_id: str, updates: dict) -> dict | None:
 
 def delete_doc_type(doc_type_id: str) -> bool:
     doc_types = _load()
-    new_list = [d for d in doc_types if d["id"] != doc_type_id]
+    new_list = [d for d in doc_types if not (d["id"] == doc_type_id and visible(d))]
     if len(new_list) == len(doc_types):
         return False
     _save(new_list)

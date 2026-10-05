@@ -1,0 +1,22 @@
+[
+  {
+    "id": "synthetic-invoice",
+    "note": "Synthetic document with known values. Checks the harness itself, not real-world accuracy.",
+    "pdf": "fixtures/synthetic_invoice.pdf",
+    "template": {
+      "name": "Commercial Invoice (eval)",
+      "template_type": "Commercial Invoice",
+      "direct_link_fields": ["Invoice No", "Invoice Date", "Seller", "Buyer", "Currency", "Payment Terms"],
+      "table_fields": [],
+      "field_config": {}
+    },
+    "expected": {
+      "Invoice No": "INV-2026-0451",
+      "Invoice Date": "12-September-2026",
+      "Seller": "NORTHWIND TRADING PTE LTD",
+      "Buyer": "BLUE HARBOR LOGISTICS SARL",
+      "Currency": "USD",
+      "Payment Terms": "NET 30"
+    }
+  }
+]

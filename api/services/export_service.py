@@ -1,6 +1,8 @@
 import csv
 import io
 import json
+
+from services.request_context import current_company, visible
 import re
 import uuid
 from datetime import datetime
@@ -81,11 +83,11 @@ def _save_integrations(integrations: list[dict]) -> None:
 
 
 def list_integrations() -> list[dict]:
-    return _load_integrations()
+    return [i for i in _load_integrations() if visible(i)]
 
 
 def get_integration(integration_id: str) -> dict | None:
-    return next((i for i in _load_integrations() if i["id"] == integration_id), None)
+    return next((i for i in _load_integrations() if i["id"] == integration_id and visible(i)), None)
 
 
 def create_integration(
@@ -101,6 +103,7 @@ def create_integration(
 ) -> dict:
     integrations = _load_integrations()
     integration = {
+        "company_id": current_company.get(),
         "id": str(uuid.uuid4()),
         "name": name,
         "type": type,
@@ -127,7 +130,7 @@ def create_integration(
 def update_integration(integration_id: str, updates: dict) -> dict | None:
     integrations = _load_integrations()
     for intg in integrations:
-        if intg["id"] == integration_id:
+        if intg["id"] == integration_id and visible(intg):
             for k, v in updates.items():
                 if k not in ("id", "created_at"):
                     intg[k] = v
@@ -138,7 +141,7 @@ def update_integration(integration_id: str, updates: dict) -> dict | None:
 
 def delete_integration(integration_id: str) -> bool:
     integrations = _load_integrations()
-    filtered = [i for i in integrations if i["id"] != integration_id]
+    filtered = [i for i in integrations if not (i["id"] == integration_id and visible(i))]
     if len(filtered) == len(integrations):
         return False
     _save_integrations(filtered)

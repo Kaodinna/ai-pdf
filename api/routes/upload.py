@@ -48,6 +48,7 @@ async def upload_pdf(request: Request, file: UploadFile = File(...)):
         create_file_record(
             file_id, file.filename, len(raw_content), page_count,
             owner_id=user["id"], owner_email=user.get("email"), owner_name=user.get("name"),
+            company_id=user.get("company_id"),
         )
 
         return {
