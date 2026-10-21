@@ -18,9 +18,7 @@ DEFAULT_CONFIG = {
         {"id": "role-reviewer", "name": "Reviewer", "description": "Can view and approve/reject files", "permissions": ["files.read", "files.status", "templates.read"]},
         {"id": "role-viewer", "name": "Viewer", "description": "Read-only access to files", "permissions": ["files.read", "templates.read"]},
     ],
-    "users": [
-        {"id": str(uuid.uuid4()), "name": "Admin User", "email": "admin@example.com", "role_id": "role-admin", "active": True, "created_at": datetime.utcnow().isoformat()},
-    ],
+    "users": [],
     "api_keys": [],
     "settings": {
         "require_mfa": False,

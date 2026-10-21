@@ -158,6 +158,11 @@ export default function LoginPage({ onLoggedIn }: { onLoggedIn: (user: AuthUser)
           <p className="mt-4 text-center text-[12.5px] text-[#7a7364]">
             No account yet? Ask an admin to create one.
           </p>
+          <p className="mt-3 text-center text-[11.5px] text-[#a8a192]">
+            <a href="/privacy" className="hover:underline">Privacy Policy</a>
+            <span className="mx-1.5">·</span>
+            <a href="/terms" className="hover:underline">Terms of Service</a>
+          </p>
         </form>
       </section>
     </div>

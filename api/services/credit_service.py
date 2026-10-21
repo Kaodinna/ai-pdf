@@ -1,7 +1,12 @@
 """
 Prepaid credit ledger. Each account (a user) holds a credit balance; every
 extracted page is charged against it. Credits are an internal unit:
-1 credit = USD_PER_CREDIT dollars, and an extracted page costs PAGE_CREDITS.
+1 credit = USD_PER_CREDIT dollars. That's both what pages actually cost us
+in Reducto/Claude spend (billed in USD) and the canonical price of a
+credit package — USD doesn't drift against itself. What we charge
+customers through Paystack is naira, converted from these USD prices at a
+live exchange rate (see services/fx_service.py) rather than a hardcoded
+NGN figure that would go stale as the rate moves.
 """
 
 import json

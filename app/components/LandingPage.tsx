@@ -218,9 +218,13 @@ export default function LandingPage({ onSignIn }: { onSignIn: () => void }) {
         </div>
       </section>
 
-      <footer className="w-[min(1120px,calc(100%-40px))] mx-auto border-t border-[#2a2c26] py-[22px] sm:pb-9 flex flex-col sm:flex-row gap-1.5 sm:gap-0 justify-between text-[#7a7f72] text-[12.5px]">
+      <footer className="w-[min(1120px,calc(100%-40px))] mx-auto border-t border-[#2a2c26] py-[22px] sm:pb-9 flex flex-col sm:flex-row gap-3 sm:gap-0 justify-between items-start sm:items-center text-[#7a7f72] text-[12.5px]">
         <span>&copy; 2026 AI PDF Studio</span>
-        <span>Document processing for logistics teams</span>
+        <div className="flex items-center gap-4">
+          <a href="/privacy" className="hover:text-[#c9ccbf] transition-colors">Privacy Policy</a>
+          <a href="/terms" className="hover:text-[#c9ccbf] transition-colors">Terms of Service</a>
+          <span className="hidden sm:inline">Document processing for logistics teams</span>
+        </div>
       </footer>
     </div>
   );

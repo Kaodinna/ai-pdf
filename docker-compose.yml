@@ -9,6 +9,10 @@ services:
       CORS_ALLOWED_ORIGINS: "https://documentscanner.nexpa.co"
       ADMIN_EMAIL: ${ADMIN_EMAIL}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      PLATFORM_OWNER_EMAIL: ${PLATFORM_OWNER_EMAIL:-}
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-https://documentscanner.nexpa.co}
+      PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY:-}
+      PAYSTACK_CURRENCY: ${PAYSTACK_CURRENCY:-NGN}
     volumes:
       - api_data:/app/data
     restart: unless-stopped

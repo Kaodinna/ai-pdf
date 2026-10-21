@@ -1371,15 +1371,29 @@ export interface CreditPackage {
   name: string;
   credits: number;
   usd: number;
+  price: number;
+  currency: string;
+}
+
+export interface CurrencyMeta {
+  label: string;
+  symbol: string;
+  round_to: number;
 }
 
 export interface BillingInfo {
   balance: number;
   page_credits: number;
   usd_per_credit: number;
+  currency: string;
+  currencies: Record<string, CurrencyMeta>;
+  credit_price: number;
   trial_credits: number;
   packages: CreditPackage[];
   payments_enabled: boolean;
+  fx_source: string;
+  fx_as_of: string;
+  fx_stale: boolean;
 }
 
 export interface CreditEntry {
@@ -1390,19 +1404,20 @@ export interface CreditEntry {
   created_at: string;
 }
 
-export async function getBilling() {
-  return apiFetch<BillingInfo>("/billing/me");
+export async function getBilling(currency?: string) {
+  const qs = currency ? `?currency=${encodeURIComponent(currency)}` : "";
+  return apiFetch<BillingInfo>(`/billing/me${qs}`);
 }
 
 export async function getBillingHistory() {
   return apiFetch<CreditEntry[]>("/billing/history");
 }
 
-export async function startCheckout(package_id: string) {
-  return apiFetch<{ url: string }>("/billing/checkout", {
+export async function startCheckout(package_id: string, currency?: string) {
+  return apiFetch<{ url: string; currency: string; downgraded_to_ngn: boolean }>("/billing/checkout", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ package_id }),
+    body: JSON.stringify({ package_id, currency }),
   });
 }
 
