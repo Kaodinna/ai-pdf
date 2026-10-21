@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   getFileRecords, getFileRecord, setFileStatus, deleteFileRecord, getWorkflowStates,
-  getTemplates, extractTemplateData, refineExtraction, updateFileField,
+  getTemplates, extractTemplateData, refineExtraction, updateFileField, updateTableCell,
   assignFile, bulkUpdateStatus, bulkDelete, smartExtract,
   setFieldDecision, setRecordDecision, getFileComments, postFileComment,
   getIntegrations, pushToIntegration,
@@ -452,6 +452,74 @@ function FieldValueModal({
   );
 }
 
+function TableCell({
+  value,
+  isEditing,
+  onStartEdit,
+  onStopEdit,
+  onSave,
+}: {
+  value: string | null;
+  isEditing: boolean;
+  onStartEdit: () => void;
+  onStopEdit: () => void;
+  onSave: (val: string | null, reason?: string) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState(value ?? "");
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { if (isEditing) inputRef.current?.focus(); }, [isEditing]);
+  // Another cell taking over edit mode counts as cancelling this one.
+  useEffect(() => { if (!isEditing) { setDraft(value ?? ""); setReason(""); } }, [isEditing, value]);
+
+  const isCorrection = draft !== (value ?? "");
+
+  const commit = async () => {
+    setSaving(true);
+    await onSave(draft || null, isCorrection ? reason.trim() || undefined : undefined);
+    setSaving(false);
+    onStopEdit();
+    setReason("");
+  };
+  const cancel = () => { setDraft(value ?? ""); setReason(""); onStopEdit(); };
+
+  if (!isEditing) {
+    return (
+      <td className="px-3 py-2 text-gray-700 whitespace-nowrap cursor-text hover:bg-blue-50/60 transition-colors"
+        title="Click to edit" onClick={onStartEdit}>
+        {value ?? "—"}
+      </td>
+    );
+  }
+  return (
+    <td className="px-2 py-1.5 bg-blue-50/40 ring-1 ring-inset ring-blue-200">
+      <div className="flex items-center gap-1 min-w-[9rem]">
+        <input ref={inputRef} value={draft} onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") cancel(); }}
+          className="flex-1 text-xs bg-white border rounded px-1.5 py-1 outline-none focus:ring-1 ring-blue-400 min-w-0" />
+        <button onClick={commit} disabled={saving} className="text-blue-600 hover:text-blue-800 flex-shrink-0 disabled:opacity-50">
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+          </svg>
+        </button>
+        <button onClick={cancel} className="text-gray-400 hover:text-gray-600 flex-shrink-0">
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+      {isCorrection && (
+        <input value={reason} onChange={(e) => setReason(e.target.value)}
+          placeholder="Why? (optional — teaches future extractions)"
+          onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") cancel(); }}
+          className="w-full mt-1 text-[10.5px] bg-white border rounded px-1.5 py-1 outline-none focus:ring-1 ring-purple-400 text-gray-600" />
+      )}
+    </td>
+  );
+}
+
 function FieldCard({
   fieldKey,
   value,
@@ -715,6 +783,7 @@ function FileDetailView({
   const [activePageIdx, setActivePageIdx] = useState(0);
   const [showOriginal, setShowOriginal] = useState(true);
   const [editingField, setEditingField] = useState<string | null>(null);
+  const [editingTableCell, setEditingTableCell] = useState<{ pageNumber: number; rowIndex: number; column: string } | null>(null);
 
   const [integrations, setIntegrations] = useState<Integration[]>([]);
   const [pushTargetId, setPushTargetId] = useState("");
@@ -769,8 +838,15 @@ function FileDetailView({
   const metaCount = Object.keys(allFieldsMeta).length;
   const needsReviewCount = Object.values(allFieldsMeta).filter((m) => m.status !== "approved").length;
 
-  const tableRows = record.pages.flatMap((p) => p.table_rows);
+  const tableRows = record.pages.flatMap((p) =>
+    (p.table_rows ?? []).map((row, rowIndex) => ({ pageNumber: p.page_number, rowIndex, row }))
+  );
   const tableEvidence = record.pages.map((p) => p.table_evidence).filter(Boolean) as string[];
+
+  const handleSaveTableCell = async (pageNumber: number, rowIndex: number, column: string, val: string | null, reason?: string) => {
+    const res = await updateTableCell(record.id, pageNumber, rowIndex, column, val, reason);
+    if (res.success && res.data) { setRecord(res.data); onStatusChange(res.data); }
+  };
 
   const handleStatus = async (stateName: string) => {
     setSaving(true);
@@ -1095,17 +1171,28 @@ function FileDetailView({
                     <table className="w-full text-xs">
                       <thead>
                         <tr className="bg-gray-50 border-b text-gray-600">
-                          {Object.keys(tableRows[0]).map((col) => (
+                          {Object.keys(tableRows[0].row).map((col) => (
                             <th key={col} className="text-left px-3 py-2 font-medium whitespace-nowrap">{col}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
-                        {tableRows.map((row, i) => (
+                        {tableRows.map(({ pageNumber, rowIndex, row }, i) => (
                           <tr key={i} className={`border-b last:border-0 ${i % 2 === 0 ? "bg-white" : "bg-gray-50/50"}`}>
-                            {Object.values(row).map((val, j) => (
-                              <td key={j} className="px-3 py-2 text-gray-700 whitespace-nowrap">{val ?? "—"}</td>
-                            ))}
+                            {Object.entries(row).map(([col, val]) => {
+                              const cellKey = `${pageNumber}:${rowIndex}:${col}`;
+                              const isEditing = editingTableCell?.pageNumber === pageNumber
+                                && editingTableCell?.rowIndex === rowIndex && editingTableCell?.column === col;
+                              return (
+                                <TableCell key={cellKey} value={val}
+                                  isEditing={isEditing}
+                                  onStartEdit={() => setEditingTableCell({ pageNumber, rowIndex, column: col })}
+                                  onStopEdit={() => setEditingTableCell((cur) => (
+                                    cur?.pageNumber === pageNumber && cur?.rowIndex === rowIndex && cur?.column === col ? null : cur
+                                  ))}
+                                  onSave={(v, reason) => handleSaveTableCell(pageNumber, rowIndex, col, v, reason)} />
+                              );
+                            })}
                           </tr>
                         ))}
                       </tbody>

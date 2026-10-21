@@ -31,6 +31,15 @@ class FieldUpdate(BaseModel):
     reason: Optional[str] = None
 
 
+class TableCellUpdate(BaseModel):
+    page_number: int
+    row_index: int
+    column: str
+    value: Optional[str] = None
+    user: str = "system"
+    reason: Optional[str] = None
+
+
 class AssignUpdate(BaseModel):
     assigned_to: Optional[str] = None
     user: str = "system"
@@ -185,6 +194,56 @@ async def update_field(file_id: str, body: FieldUpdate, request: Request):
                       entity_name=record.get("filename", ""),
                       user=body.user,
                       details={"memory_id": memory["id"], "field": body.field})
+
+        return {"success": True, "data": updated, "error": None}
+    except Exception as e:
+        return {"success": False, "data": None, "error": str(e)}
+
+
+@router.patch("/files/{file_id}/table-rows")
+async def update_table_cell(file_id: str, body: TableCellUpdate, request: Request):
+    try:
+        record = get_accessible_file_record(file_id, request.state.user)
+        if not record:
+            return {"success": False, "data": None, "error": "File record not found"}
+        pages = record.get("pages", [])
+        page = next((p for p in pages if p.get("page_number") == body.page_number), None)
+        if not page:
+            return {"success": False, "data": None, "error": f"Page {body.page_number} not found"}
+        rows = page.get("table_rows") or []
+        if not (0 <= body.row_index < len(rows)):
+            return {"success": False, "data": None, "error": "Row not found"}
+
+        old_value = rows[body.row_index].get(body.column)
+        if body.value == old_value:
+            return {"success": True, "data": record, "error": None}
+        rows[body.row_index][body.column] = body.value
+
+        updated = update_file_record(file_id, {"pages": pages})
+        if not updated:
+            return {"success": False, "data": None, "error": "File record not found"}
+        log_event("table_cell_updated", "file", file_id,
+                  entity_name=record.get("filename", ""),
+                  user=body.user,
+                  details={"page_number": body.page_number, "row_index": body.row_index,
+                           "column": body.column, "value": body.value, "original": old_value})
+
+        # Table rows are always AI-extracted (there's no manual "add a row"
+        # path), so unlike a plain field correction there's no was_ai_derived
+        # check to make — any change to an existing cell is a correction.
+        memory = create_memory(
+            field_name=body.column,
+            doc_type=record.get("template_type") or record.get("template_name"),
+            original_value=old_value,
+            corrected_value=body.value,
+            reason=body.reason or "Reviewer correction (no reason given)",
+            created_by=body.user,
+            company_id=record.get("company_id"),
+        )
+        log_event("ai_memory_created", "file", file_id,
+                  entity_name=record.get("filename", ""),
+                  user=body.user,
+                  details={"memory_id": memory["id"], "field": body.column, "table": True})
 
         return {"success": True, "data": updated, "error": None}
     except Exception as e:

@@ -79,6 +79,15 @@ def _build_schema(template: dict, memories: list[dict] | None = None) -> dict:
         if len(bucket) > MAX_MEMORIES_PER_FIELD:
             bucket.pop(0)
 
+    def _memory_suffix(fname: str) -> str:
+        suffix = ""
+        for mem in memories_by_field.get(fname, []):
+            suffix += (
+                f". A reviewer previously corrected \"{mem.get('original_value')}\" to "
+                f"\"{mem.get('corrected_value')}\" because: {mem.get('reason')}. Apply this pattern when it applies."
+            )
+        return suffix
+
     properties: dict = {}
     for fname in direct_link_fields:
         cfg = field_config.get(fname, {})
@@ -89,11 +98,7 @@ def _build_schema(template: dict, memories: list[dict] | None = None) -> dict:
         restriction = cfg.get("data_type_restriction")
         if restriction:
             desc += f". Rule: {restriction}"
-        for mem in memories_by_field.get(fname, []):
-            desc += (
-                f". A reviewer previously corrected \"{mem.get('original_value')}\" to "
-                f"\"{mem.get('corrected_value')}\" because: {mem.get('reason')}. Apply this pattern when it applies."
-            )
+        desc += _memory_suffix(fname)
         properties[fname] = {
             "type": _TYPE_MAP.get(cfg.get("data_type", "Text"), "string"),
             "description": desc,
@@ -103,7 +108,7 @@ def _build_schema(template: dict, memories: list[dict] | None = None) -> dict:
         item_props = {
             fname: {
                 "type": _TYPE_MAP.get(table_config.get(fname, {}).get("data_type", "Text"), "string"),
-                "description": table_config.get(fname, {}).get("description") or fname,
+                "description": (table_config.get(fname, {}).get("description") or fname) + _memory_suffix(fname),
             }
             for fname in table_fields
         }

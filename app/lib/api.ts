@@ -575,6 +575,21 @@ export async function updateFileField(
   });
 }
 
+export async function updateTableCell(
+  id: string,
+  page_number: number,
+  row_index: number,
+  column: string,
+  value: string | null,
+  reason?: string
+) {
+  return apiFetch<FileRecord>(`/files/${id}/table-rows`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ page_number, row_index, column, value, reason }),
+  });
+}
+
 export interface AiMemory {
   id: string;
   field_name: string;
