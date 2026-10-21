@@ -10,18 +10,42 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
+from services.crypto_service import encrypt, decrypt, is_encrypted
+
 MAILBOXES_FILE = Path(__file__).parent.parent / "data" / "mailboxes.json"
 MAILBOXES_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 
 def _load() -> list[dict]:
+    """Loads mailboxes with passwords decrypted. Transparently migrates any
+    still-plaintext password (from before encryption was added) to
+    encrypted-at-rest on the next save, instead of requiring a separate
+    migration step — decrypt() is tried first, and anything that isn't a
+    valid Fernet token is treated as a legacy plaintext value."""
     if not MAILBOXES_FILE.exists():
         return []
-    return json.loads(MAILBOXES_FILE.read_text())
+    boxes = json.loads(MAILBOXES_FILE.read_text())
+    needs_migration = False
+    for b in boxes:
+        pw = b.get("password")
+        if not pw:
+            continue
+        if is_encrypted(pw):
+            b["password"] = decrypt(pw)
+        else:
+            needs_migration = True  # legacy plaintext — left as-is, encrypted on the save below
+    if needs_migration:
+        _save(boxes)
+    return boxes
 
 
 def _save(mailboxes: list[dict]) -> None:
-    MAILBOXES_FILE.write_text(json.dumps(mailboxes, indent=2))
+    """Writes mailboxes with passwords encrypted at rest."""
+    to_write = [
+        {**b, "password": encrypt(b["password"])} if b.get("password") else b
+        for b in mailboxes
+    ]
+    MAILBOXES_FILE.write_text(json.dumps(to_write, indent=2))
 
 
 def _seed_from_env_if_empty() -> None:

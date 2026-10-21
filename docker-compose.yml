@@ -13,6 +13,7 @@ services:
       PUBLIC_APP_URL: ${PUBLIC_APP_URL:-https://documentscanner.nexpa.co}
       PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY:-}
       PAYSTACK_CURRENCY: ${PAYSTACK_CURRENCY:-NGN}
+      MAILBOX_ENCRYPTION_KEY: ${MAILBOX_ENCRYPTION_KEY:-}
     volumes:
       - api_data:/app/data
     restart: unless-stopped
