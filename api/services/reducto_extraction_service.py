@@ -66,9 +66,18 @@ def _build_schema(template: dict, memories: list[dict] | None = None) -> dict:
     table_fields = template.get("table_fields", [])
     table_config = template.get("table_config", {})
 
+    # Cap at the most recent few per field — a correction no longer needs a
+    # reason to be saved (see routes/files.py), so a frequently-corrected
+    # field can accumulate many memories over time. Appending all of them
+    # to the prompt unbounded would bloat it and, worse, stack
+    # contradictory instructions if the correct pattern ever changes.
+    MAX_MEMORIES_PER_FIELD = 5
     memories_by_field: dict[str, list[dict]] = {}
-    for m in memories or []:
-        memories_by_field.setdefault(m["field_name"], []).append(m)
+    for m in sorted(memories or [], key=lambda m: m.get("created_at", "")):
+        bucket = memories_by_field.setdefault(m["field_name"], [])
+        bucket.append(m)
+        if len(bucket) > MAX_MEMORIES_PER_FIELD:
+            bucket.pop(0)
 
     properties: dict = {}
     for fname in direct_link_fields:

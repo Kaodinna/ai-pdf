@@ -166,13 +166,18 @@ async def update_field(file_id: str, body: FieldUpdate, request: Request):
         if body.action == "update" and was_approved and body.value != old_value:
             increment_metric("corrected_after_approval_total")
 
-        if body.action == "update" and body.reason and was_ai_derived and body.value != old_value:
+        if body.action == "update" and was_ai_derived and body.value != old_value:
+            # A reason makes the memory more useful (it's injected into the
+            # extraction prompt verbatim), but it was previously required —
+            # most reviewers skipped the optional reason box, so most real
+            # corrections never became a memory at all. Fall back to a
+            # generic reason instead of silently dropping the correction.
             memory = create_memory(
                 field_name=body.field,
                 doc_type=record.get("template_type") or record.get("template_name"),
                 original_value=old_value,
                 corrected_value=body.value,
-                reason=body.reason,
+                reason=body.reason or "Reviewer correction (no reason given)",
                 created_by=body.user,
                 company_id=record.get("company_id"),
             )
